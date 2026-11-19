@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import hashlib
 import io
 import json
@@ -532,6 +533,8 @@ class Manager:
         self.refresh_secrets()
         from skill_updates import SkillUpdater
         self.skills = SkillUpdater(Path(home), Path(state_dir), self.log)
+        from availability import AvailabilityTracker
+        self.availability_tracker = AvailabilityTracker(self.home, self.state_dir, self.app_dir, labels=MCP_LABELS)
 
     def refresh_secrets(self):
         from urllib.parse import parse_qsl, unquote, urlsplit
@@ -626,6 +629,9 @@ class Manager:
                 'applications': [{'id': 'claude', 'name': 'Claude Code'}, {'id': 'codex', 'name': 'Codex'},
                                  {'id': 'gemini', 'name': 'Gemini CLI'}],
                 'plugins': baseline.get('account_plugins', [])}
+
+    def availability(self, app='all'):
+        return self.availability_tracker.scan(self, app)
 
     def suggestions(self):
         data = read_json(self.app_dir / 'suggestions.json', [])
@@ -740,21 +746,34 @@ class Manager:
 
     def export_snapshot(self):
         inv = self.sanitize(self.inventory())
+        availability = self.sanitize(self.availability())
         web = self.app_dir / 'web'
         web.mkdir(exist_ok=True)
         write_json(web / 'snapshot.json', inv)
-        text = 'window.INVENTORY_FALLBACK=' + json.dumps(inv, ensure_ascii=True).replace('</', '<\\/') + ';\n'
+        text = ('window.INVENTORY_FALLBACK=' + json.dumps(inv, ensure_ascii=True).replace('</', '<\\/') +
+                ';window.INVENTORY_AVAILABILITY=' + json.dumps(availability, ensure_ascii=True).replace('</', '<\\/') + ';\n')
         (web / 'snapshot.js').write_text(text, encoding='utf-8')
         index = web / 'index.html'
         css, script = web / 'styles.css', web / 'app.js'
         if index.is_file() and css.is_file() and script.is_file():
             standalone = index.read_text(encoding='utf-8')
-            standalone = standalone.replace('<link rel="stylesheet" href="styles.css">',
-                '<style>' + css.read_text(encoding='utf-8') + '</style>')
+            standalone = re.sub(r'<link\b(?=[^>]*\brel=["\']stylesheet["\'])(?=[^>]*\bhref=["\'](?:\./|/)?styles\.css["\'])[^>]*>',
+                lambda _: '<style>' + css.read_text(encoding='utf-8') + '</style>', standalone, flags=re.I)
             standalone = standalone.replace('<!-- INVENTORY_BOOTSTRAP -->',
                 '<script>' + text + '</script>')
-            standalone = standalone.replace('<script src="app.js" defer></script>',
-                '<script>' + script.read_text(encoding='utf-8').replace('</script', '<\\/script') + '</script>')
+            for filename in ['theme.js', 'app.js']:
+                asset = web / filename
+                if asset.is_file():
+                    standalone = re.sub(r'<script\b[^>]*\bsrc=["\'](?:\./|/)?' + re.escape(filename) + r'["\'][^>]*>\s*</script>',
+                        lambda _, asset=asset: '<script>' + asset.read_text(encoding='utf-8').replace('</script', '<\\/script') + '</script>',
+                        standalone, flags=re.I)
+            standalone = re.sub(r'<script\b[^>]*\bsrc=["\'](?:\./|/)?pwa\.js["\'][^>]*>\s*</script>', '', standalone, flags=re.I)
+            standalone = re.sub(r'<link\b[^>]*\brel=["\'](?:manifest|apple-touch-icon)["\'][^>]*>', '', standalone, flags=re.I)
+            icon = web / 'icons/icon.svg'
+            if icon.is_file():
+                data_url = 'data:image/svg+xml;base64,' + base64.b64encode(icon.read_bytes()).decode('ascii')
+                standalone = re.sub(r'<link\b[^>]*\brel=["\'](?:shortcut )?icon["\'][^>]*>',
+                    lambda _: '<link rel="icon" href="' + data_url + '">', standalone, flags=re.I)
             output = self.app_dir / 'index.html'
             output.write_text(standalone, encoding='utf-8')
             # Keep the user's original Desktop entrypoint, with its original saved once.

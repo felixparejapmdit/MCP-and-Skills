@@ -26,6 +26,8 @@ Each update unit uses `id`, `name`, `kind`, `installedVersion`, `latestVersion`,
 ## HTTP contract
 
 - GET `/api/inventory`: `{mcp, skillGroups, stats, applications, generatedAt}`. MCP rows contain `id,name,description,apps,status,kind,sourceId`; groups contain `id,title,state,apps,names,count,kind,sourceId`.
+- GET `/api/availability?app=all|claude|codex|gemini`: `{selectedApp, generatedAt, applications, summary, items, scanComplete, warnings}`. Items distinguish `installed`, `missing`, and `not-installed` and include compatibility, removal evidence, and missing-runtime flags. History stores sanitized installation identities outside the repository.
+- GET `/api/session`: a fresh in-memory authorization token for reconnecting the PWA after a helper restart. This response is never cached or persisted in browser storage.
 - GET `/api/status`: `{job, settings, lastCheck, lastUpdate, helperVersion}`.
 - GET `/api/updates`: `{items, checkedAt}`.
 - GET `/api/suggestions`: `{items, checkedAt}`; each item has `id,name,kind,description,reason,url,requiresAccount`.
@@ -36,11 +38,18 @@ Each update unit uses `id`, `name`, `kind`, `installedVersion`, `latestVersion`,
 
 Mutation endpoints accept JSON, require same-origin loopback requests and a generated `X-Inventory-Token` header. The backend injects the token into the served page as `window.INVENTORY_TOKEN`; no public CORS access. HTML loaded directly from disk retains its saved inventory and links to the local dashboard.
 
+## Offline and PWA boundaries
+
+`/manifest.webmanifest` declares standalone mode and local icons. `/service-worker.js` fingerprints the generic shell and public static assets, so source changes produce a new cache version. The worker caches `/offline.html` and its static dependencies, never live `/`, `/index.html`, API responses, exported snapshots, mutations, cross-origin requests, or query-bearing requests.
+
+The offline shell has no bootstrap credentials. The frontend keeps sanitized inventory, per-agent availability, suggestions, and save timestamps in browser storage, while the theme and agent preferences have separate keys. Offline actions remain read-only. The loopback helper remains required for fresh detection and global updates.
+
 ## Files
 
 - `server.py`: loopback HTTP server, request validation, and scheduler startup.
 - `manager_core.py`: inventory, MCP runtime updates, jobs, settings, and snapshot exports.
 - `skill_updates.py`: source discovery, provenance checks, staged skill updates, and rollback.
+- `availability.py`: read-only installation scans, native compatibility, missing launchers, and durable removal evidence.
 - `web/`: browser interface; snapshots are generated locally and excluded from Git.
 - `suggestions.json`: curated additions filtered against the installed inventory.
 - `test_*.py`: isolated regression checks with temporary homes and mocked publishers.

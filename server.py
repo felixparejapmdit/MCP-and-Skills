@@ -3,18 +3,60 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
 from pathlib import Path
+import re
 import secrets
 import sys
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from manager_core import APP_DIR, DEFAULT_STATE, HOME, Manager, VERSION, read_json, write_json
+
+
+# Only these public assets can be served or cached by the PWA. Local snapshots,
+# credentials and API responses are deliberately outside the offline shell.
+PWA_ASSETS = {
+    '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+    '/styles.css': ('styles.css', 'text/css; charset=utf-8'),
+    '/theme.js': ('theme.js', 'text/javascript; charset=utf-8'),
+    '/pwa.js': ('pwa.js', 'text/javascript; charset=utf-8'),
+    '/manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json; charset=utf-8'),
+    '/icons/icon.svg': ('icons/icon.svg', 'image/svg+xml'),
+    '/icons/icon-192.png': ('icons/icon-192.png', 'image/png'),
+    '/icons/icon-512.png': ('icons/icon-512.png', 'image/png'),
+    '/icons/icon-maskable-512.png': ('icons/icon-maskable-512.png', 'image/png'),
+    '/icons/apple-touch-icon.png': ('icons/apple-touch-icon.png', 'image/png'),
+}
+
+
+def offline_document(web):
+    """Return the generic shell without any live bootstrap or personal data."""
+    text = (Path(web) / 'index.html').read_text(encoding='utf-8').replace('<!-- INVENTORY_BOOTSTRAP -->', '')
+    # Defense in depth if a generated page is ever copied over the template.
+    text = re.sub(r'<script\b[^>]*>.*?</script\s*>',
+                  lambda match: '' if re.search(r'window\.INVENTORY_(?:TOKEN|SNAPSHOT|FALLBACK)', match[0]) else match[0],
+                  text, flags=re.I | re.S)
+    return re.sub(r'(<script\b[^>]*\bid=[\"\']saved-inventory[\"\'][^>]*>).*?(</script\s*>)',
+                  lambda match: match[1] + '{"mcp":[],"skillGroups":[],"stats":{},"applications":[],"plugins":[]}' + match[2],
+                  text, flags=re.I | re.S)
+
+
+def service_worker_source(web):
+    """Changing a shell asset changes the worker bytes and its cache version."""
+    web = Path(web)
+    fingerprint = hashlib.sha256(offline_document(web).encode('utf-8'))
+    for relative, _ in sorted(PWA_ASSETS.values()):
+        source = web / relative
+        fingerprint.update(relative.encode('utf-8'))
+        if source.is_file():
+            fingerprint.update(source.read_bytes())
+    return (web / 'service-worker.js').read_text(encoding='utf-8').replace('__SHELL_REVISION__', fingerprint.hexdigest()[:16])
 
 
 class InventoryHTTPServer(ThreadingHTTPServer):
@@ -65,7 +107,7 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return False
         return True
 
-    def send_bytes(self, body, content_type, status=200, nonce=None):
+    def send_bytes(self, body, content_type, status=200, nonce=None, extra_headers=None):
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
@@ -74,7 +116,9 @@ class InventoryHandler(BaseHTTPRequestHandler):
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
         script = "'self'" + (" 'nonce-" + nonce + "'" if nonce else '')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src " + script + "; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src " + script + "; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -84,12 +128,23 @@ class InventoryHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.secure_request():
             return
-        path = urlsplit(self.path).path
+        parsed_url = urlsplit(self.path)
+        path = parsed_url.path
         try:
             if path in ('/health', '/api/health'):
                 return self.json_response({'application': 'AgentInventoryManager', 'version': VERSION, 'running': True})
             if path == '/api/inventory':
                 return self.json_response(self.manager.inventory())
+            if path == '/api/session':
+                # This token is held only in live page memory. It lets a generic
+                # offline shell reconnect after the helper has restarted.
+                return self.json_response({'token': self.manager.token})
+            if path == '/api/availability':
+                query = parse_qs(parsed_url.query, keep_blank_values=True)
+                apps = query.get('app', ['all'])
+                if set(query) - {'app'} or len(apps) != 1 or apps[0] not in {'all', 'claude', 'codex', 'gemini'}:
+                    return self.json_response({'error': 'Choose all, claude, codex, or gemini'}, 400)
+                return self.json_response(self.manager.availability(apps[0]))
             if path == '/api/status':
                 return self.json_response(self.manager.status())
             if path == '/api/updates':
@@ -98,6 +153,12 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return self.json_response(self.manager.suggestions())
             if path == '/api/activity':
                 return self.json_response({'items': self.manager.state.get('activity', [])})
+            web = self.manager.app_dir / 'web'
+            if path == '/offline.html':
+                return self.send_bytes(offline_document(web).encode('utf-8'), 'text/html; charset=utf-8')
+            if path == '/service-worker.js':
+                return self.send_bytes(service_worker_source(web).encode('utf-8'), 'text/javascript; charset=utf-8',
+                                       extra_headers={'Service-Worker-Allowed': '/'})
             if path in ('/', '/index.html'):
                 source = self.manager.app_dir / 'web/index.html'
                 if not source.is_file():
@@ -111,12 +172,13 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 else:
                     text = text.replace('</head>', boot + '</head>', 1)
                 return self.send_bytes(text.encode('utf-8'), 'text/html; charset=utf-8', nonce=nonce)
-            assets = {'/app.js': 'app.js', '/styles.css': 'styles.css', '/snapshot.js': 'snapshot.js', '/snapshot.json': 'snapshot.json'}
+            assets = {**PWA_ASSETS, '/snapshot.js': ('snapshot.js', 'text/javascript; charset=utf-8'),
+                      '/snapshot.json': ('snapshot.json', 'application/json; charset=utf-8')}
             if path in assets:
-                source = self.manager.app_dir / 'web' / assets[path]
+                relative, content_type = assets[path]
+                source = web / relative
                 if source.is_file():
-                    content_type = mimetypes.guess_type(source.name)[0] or 'application/octet-stream'
-                    return self.send_bytes(source.read_bytes(), content_type + '; charset=utf-8')
+                    return self.send_bytes(source.read_bytes(), content_type)
             return self.json_response({'error': 'Not found'}, 404)
         except (BrokenPipeError, ConnectionResetError):
             return

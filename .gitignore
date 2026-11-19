@@ -38,4 +38,6 @@ state.json
 metadata-cache.json
 mcp-managed.json
 skill-updates-state.json
+availability-history.json
+.impeccable/
 *.tmp

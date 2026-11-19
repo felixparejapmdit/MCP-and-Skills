@@ -27,6 +27,9 @@ This repository contains the dashboard and updater. It reads your existing globa
 
 ## Use the dashboard
 
+- **Choose your agent:** select All agents, Claude, Codex, or Gemini at the top. Your choice persists in this browser and scopes the installation view. It selects the agent whose tools you manage, rather than sending chat prompts to an LLM.
+- **Installation status:** filter Installed, Missing, or Not installed. Missing covers a compatible capability absent from the selected agent, a previously detected item that was removed, or a configured MCP whose local launcher is missing. Not installed identifies curated additions outside your current inventory.
+- **Refresh inventory:** rescan local installations without checking publishers or applying updates. Live browsing also refreshes detection periodically.
 - **Overview / MCP servers / Agent skills:** browse the current global installations. Search by name and filter by Claude, Codex, or Gemini. The MCP connection badges show the saved connection check, not a new account login test.
 - **Updates:** see installed and latest versions for each supported source. A skill collection shares one publisher check and update action; individual skills link to that source.
 - **Check for updates:** contact the registered publishers. When automatic updates are enabled, available supported updates are applied after the check.
@@ -36,6 +39,26 @@ This repository contains the dashboard and updater. It reads your existing globa
 - **Activity:** review completed checks, updates, and items requiring attention.
 
 Restart an active Claude, Codex, or Gemini session after updates so it loads the new runtime or skill instructions.
+
+Global source updates can affect more than one agent even when the view is filtered. Detection and suggestions never reinstall a removed item automatically.
+
+## Themes, mobile layout, and PWA installation
+
+Use the appearance selector to choose **Light**, **Dark**, or **System**. The preference persists and applies before the first render. Navigation, controls, tables, and skill collections adapt to phone, tablet, laptop, and large desktop widths.
+
+The design adapts the **Linear** reference from [Awesome Design MD](https://github.com/voltagent/awesome-design-md/tree/main/design-md/linear.app). The app uses neutral surfaces, precise typography, and a restrained lavender accent; [DESIGN.md](DESIGN.md) records the implementation direction.
+
+In a supported browser, use **Install app** when it appears, or the browser's install menu. The manifest, app icons, standalone display, and service worker are included. Installation requires a secure context; `http://127.0.0.1:8766` and localhost qualify on this computer.
+
+After the first successful visit, the PWA can open a dated saved inventory while the helper or network is unavailable. Offline browsing retains themes and previously saved agent views. Update commands remain disabled until the helper reconnects. The service worker caches only the generic app shell and static assets; live session tokens, API responses, and update requests are excluded. Reconnecting renews the session token in memory.
+
+The helper remains bound to this computer's loopback address. A physical phone cannot reach this computer through its own `127.0.0.1`; cross-device installation requires a reachable HTTPS deployment with appropriate backend access. Mobile layouts can also be used through the browser's responsive device view.
+
+## How missing-item detection works
+
+The scan compares current global configuration, skill folders, local launcher paths, compatible capabilities in other agents, and the last successful local scan. Removal history persists across helper restarts and clears when an item is restored. Items removed before the first recorded scan can only be identified through the remaining known catalog or other agents' installations.
+
+Agent-specific built-ins retain their compatibility scope. A command and a portable skill file are distinct installation types. On-demand npm packages do not count as uninstalled merely because an npm cache directory is empty. Unreadable configuration and in-progress updates preserve previous evidence and display a scan warning instead of inventing removals.
 
 ## How updates work
 
@@ -73,6 +96,7 @@ Run the launcher again to resume. To disable startup, open `shell:startup` using
 - `web/` contains the live interface. Generated `index.html` and `web/snapshot.*` files are excluded from Git; start the helper to create your own snapshots.
 - `%LOCALAPPDATA%\AgentInventoryManager\settings.json` stores the schedule.
 - `%LOCALAPPDATA%\AgentInventoryManager\state.json` stores source check results and activity.
+- `%LOCALAPPDATA%\AgentInventoryManager\availability-history.json` stores sanitized installation evidence used to detect removals.
 - `%LOCALAPPDATA%\AgentInventoryManager\backups` contains previous MCP configurations and the original Desktop HTML. `skill-backups` contains dated skill directory backups and transaction records.
 - `%LOCALAPPDATA%\AgentInventoryManager\runtimes` contains versioned local MCP runtimes. Skill source caches and update receipts are kept in the same state folder.
 
