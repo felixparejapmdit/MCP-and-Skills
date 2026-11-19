@@ -1,0 +1,41 @@
+# Generated inventories contain this computer's installed tools and local paths.
+/index.html
+/MCP and Agent Skills.html
+/web/snapshot.json
+/web/snapshot.js
+
+# Local Python and editor artifacts.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.vscode/
+.idea/
+*.lnk
+
+# Credentials, user configurations, and runtime state are local only.
+.env
+.env.*
+!.env.example
+.claude.json
+.claude/
+.agents/
+.codex/
+.gemini/
+state/
+backups/
+skill-backups/
+skill-staging/
+runtimes/
+skill-cache/
+install-records/
+node_modules/
+*.log
+runtime.json
+settings.json
+state.json
+metadata-cache.json
+mcp-managed.json
+skill-updates-state.json
+*.tmp

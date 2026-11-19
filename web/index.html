@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>MCP servers and agent skills</title>
+<meta name="description" content="Your local inventory, publisher updates, and suggested additions for Claude Code, Codex, and Gemini CLI.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23214fc6'/%3E%3Cpath d='M8 9h16v3H8zm0 6h11v3H8zm0 6h16v3H8z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+<!-- INVENTORY_BOOTSTRAP -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to inventory</a>
+<div class="layout">
+<aside class="sidebar">
+  <div class="identity">Agent inventory<span>Your global tools and skills</span></div>
+  <nav aria-label="Inventory sections">
+    <a href="#overview">Overview</a><a href="#updates">Updates</a><a href="#mcp">MCP servers</a><a href="#skills">Agent skills</a><a href="#suggestions">Suggested additions</a><a href="#activity">Activity</a><a href="#commands">Legacy commands</a><a href="#signin">Sign-in and scope</a>
+  </nav>
+  <button class="button print-button" id="print-report" type="button">Print / Save PDF</button>
+  <div class="sidebar-footer"><span id="sidebar-state">Saved inventory</span><br>Your inventory stays on this computer.</div>
+</aside>
+<main id="main">
+<header id="overview">
+  <h1>MCP servers &amp; agent skills</h1>
+  <p class="intro">Find your installed tools across Claude Code, Codex, and Gemini CLI. Keep supported sources current and review useful additions.</p>
+  <p class="snapshot" id="inventory-time">Loading your saved inventory...</p>
+  <div class="summary-line" id="summary-line"></div>
+</header>
+<div id="helper-notice" class="helper-notice" role="status">
+  <div><strong id="helper-notice-title">Saved inventory</strong><p id="helper-notice-text">Open the local dashboard to check publishers, manage updates, and see suggestions.</p></div>
+  <a class="button" href="http://127.0.0.1:8766/" id="open-dashboard">Open live dashboard</a>
+  <button type="button" class="button" id="retry-helper" hidden>Retry connection</button>
+</div>
+<p id="action-message" class="action-message" role="status" aria-live="polite" hidden></p>
+<div class="toolbar" role="search">
+  <div class="search-field"><label for="search">Search the inventory</label><input id="search" type="search" placeholder="Search a server, skill, source, or suggestion" autocomplete="off"></div>
+  <div><label for="app-filter">Application</label><select id="app-filter"><option value="all">All applications</option><option value="claude">Claude Code</option><option value="codex">Codex / Work</option><option value="gemini">Gemini CLI</option></select></div>
+  <button class="button" id="reset-filters" type="button">Reset filters</button>
+</div>
+<p id="results" class="results" role="status" aria-live="polite"></p>
+<noscript><p class="noscript">Open the original Desktop inventory to browse without JavaScript. The live manager requires JavaScript.</p></noscript>
+<section class="section" id="updates" aria-labelledby="updates-title">
+  <div class="section-heading"><div><h2 id="updates-title">Updates</h2><p>One publisher update can cover an entire skill collection. Your local adaptations and changes are checked before replacements are made.</p></div><p class="snapshot" id="last-checked">No publisher check recorded</p></div>
+  <div class="update-controls">
+    <div class="action-buttons"><button class="button primary" id="check-updates" type="button" disabled>Check for updates</button><button class="button" id="update-all" type="button" disabled>Update available sources</button></div>
+    <form id="auto-settings" class="auto-settings">
+      <label class="checkbox-label" for="auto-update"><input id="auto-update" type="checkbox" disabled><span>Automatic updates</span></label>
+      <div class="interval-field"><label for="update-interval">Check interval</label><select id="update-interval" disabled><option value="6">Every 6 hours</option><option value="12">Every 12 hours</option><option value="24" selected>Every day</option><option value="48">Every 2 days</option><option value="168">Every week</option></select></div>
+    </form>
+  </div>
+  <p id="schedule-note" class="control-note">Open the live dashboard to manage the update schedule.</p>
+  <div id="job-panel" class="job-panel" role="status" aria-live="polite" hidden><div class="job-heading"><strong id="job-title">Checking publishers</strong><span id="job-percent"></span></div><progress id="job-progress" max="100" aria-label="Update progress"></progress><p id="job-message"></p></div>
+  <p class="control-note" id="update-summary">Publisher versions have not been checked in this view.</p>
+  <details id="source-details" class="source-details"><summary>Publisher versions <span id="source-count"></span></summary><div class="table-wrap"><table id="updates-table"><thead><tr><th scope="col">Source</th><th scope="col">Installed</th><th scope="col">Latest</th><th scope="col">Update status</th><th scope="col">Action</th></tr></thead><tbody></tbody></table></div></details>
+  <p id="updates-empty" class="empty">A publisher check will compare your installed versions and identify supported updates.</p>
+  <p id="updates-error" class="inline-error" role="status" hidden></p>
+</section>
+<section class="section" id="mcp" aria-labelledby="mcp-title">
+  <div class="section-heading"><div><h2 id="mcp-title">MCP servers</h2><p>Global configurations across your three agents. Connection status reflects the most recent saved check; each client manages its own account sign-in.</p></div><div class="status-filter"><label for="mcp-status">Connection status</label><select id="mcp-status"><option value="all">All statuses</option><option value="connected">Connected</option><option value="auth">Sign-in required</option></select></div></div>
+  <p id="mcp-count" class="snapshot"></p><div class="table-wrap"><table id="mcp-table"><thead><tr><th scope="col">Server</th><th scope="col">Connection</th><th scope="col">Claude Code</th><th scope="col">Codex</th><th scope="col">Gemini CLI</th><th scope="col">Publisher update</th></tr></thead><tbody></tbody></table></div><p id="mcp-empty" class="empty" hidden>No servers match these filters. Clear the search or choose another application.</p>
+</section>
+<section class="section" id="skills" aria-labelledby="skills-title">
+  <div class="section-heading"><div><h2 id="skills-title">Agent skills</h2><p id="skills-description">Browse the full library by source. Matching capabilities can be listed more than once when agents load them from different sources.</p></div></div>
+  <div class="section-actions"><button class="quiet-button" id="expand-all" type="button">Expand all matching groups</button><button class="quiet-button" id="collapse-all" type="button">Collapse all groups</button></div>
+  <div id="skill-groups"></div><p id="skills-empty" class="empty" hidden>No skills match these filters. Try a shorter name or choose all applications.</p>
+</section>
+<section class="section" id="suggestions" aria-labelledby="suggestions-title">
+  <div class="section-heading"><div><h2 id="suggestions-title">Suggested additions</h2><p>Review tools you do not already have. Each suggestion links to its publisher and explains when an account is needed.</p></div><span id="suggestions-time" class="snapshot"></span></div>
+  <ul id="suggestion-list" class="suggestion-list"></ul><p id="suggestions-empty" class="empty">Open the live dashboard to see suggestions based on your installed tools.</p><p id="suggestions-error" class="inline-error" role="status" hidden></p>
+</section>
+<section class="section" id="activity" aria-labelledby="activity-title">
+  <div class="section-heading"><div><h2 id="activity-title">Recent activity</h2><p>Publisher checks, completed updates, and changes that need your attention.</p></div></div>
+  <ol id="activity-list" class="activity-list"></ol><p id="activity-empty" class="empty">Update activity will appear here when the local manager is running.</p>
+</section>
+<section class="section" id="commands" aria-labelledby="commands-title">
+  <div class="section-heading"><div><h2 id="commands-title">Legacy commands</h2><p>Existing Claude command aliases are retained alongside their underlying skills.</p></div></div><div id="command-groups"></div><p id="commands-empty" class="empty" hidden>No commands match these filters.</p>
+</section>
+<section class="section" id="signin" aria-labelledby="signin-title"><h2 id="signin-title">Sign-in and scope</h2><div class="help"><div><h3>Connect your accounts</h3><p>For a server awaiting sign-in, open <code>/mcp</code> in Claude Code and select the server. In Codex, authenticate a configured OAuth server with:</p><code class="command">codex mcp login &lt;server&gt;</code><p>In Gemini CLI, use <code>/mcp auth &lt;server&gt;</code>. Each client keeps its own connection.</p></div><div><h3>Your local installations</h3><p>Filesystem access is confined to your <code>Documents/AI PROJECTS</code> folder. Your knowledge graph is stored outside individual projects.</p><p>Hosted MCP services and agent-bundled skills are updated by their providers. Other supported publisher sources can be checked and updated here.</p><p>Suggestions are reviewed separately. This manager updates installed sources without installing suggested tools.</p></div></div></section>
+<footer><span id="footer-state">Saved inventory.</span> Local publisher updates preserve backups and stop when they encounter conflicting local changes. <span class="no-print">Use the Desktop launcher to open the live manager.</span></footer>
+</main></div>
+<script id="saved-inventory" type="application/json">{"mcp":[],"skillGroups":[],"stats":{},"applications":["claude","codex","gemini"],"generatedAt":null,"plugins":[]}</script>
+<script src="app.js" defer></script>
+</body></html>

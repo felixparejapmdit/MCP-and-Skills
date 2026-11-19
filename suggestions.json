@@ -1,0 +1,125 @@
+[
+  {
+    "id": "mcp-cloudflare-docs",
+    "name": "Cloudflare Documentation MCP",
+    "kind": "mcp",
+    "description": "Search Cloudflare developer documentation through its public documentation server.",
+    "reason": "Useful when evaluating Workers, R2 photo storage, caching, or deployment options for SiteMonitor. Public documentation access does not require a Cloudflare account.",
+    "url": "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
+    "requiresAccount": false,
+    "matchNames": ["cloudflare-docs", "cloudflare-documentation", "cloudflare-documentation-mcp", "docs-ai-search", "cloudflare-docs-ai-search"]
+  },
+  {
+    "id": "mcp-linear",
+    "name": "Linear MCP",
+    "kind": "mcp",
+    "description": "Find and manage Linear issues, projects, and comments from a coding agent.",
+    "reason": "An optional planning connection if your team uses Linear for estate work or development tasks. Your existing GitHub MCP may already cover your issue-tracking needs.",
+    "url": "https://linear.app/docs/mcp",
+    "requiresAccount": true,
+    "matchNames": ["linear", "linear-server", "linear-mcp", "linear-mcp-server"]
+  },
+  {
+    "id": "mcp-cloudflare-api",
+    "name": "Cloudflare API MCP",
+    "kind": "mcp",
+    "description": "Search and call Cloudflare API endpoints, and look up its developer documentation.",
+    "reason": "Consider this if you deploy through Cloudflare and want agents to inspect or manage Workers, R2, and DNS. It needs a Cloudflare account with the relevant permissions.",
+    "url": "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
+    "requiresAccount": true,
+    "matchNames": ["cloudflare", "cloudflare-api", "cloudflare-api-mcp", "cloudflare-mcp"]
+  },
+  {
+    "id": "mcp-brave-search",
+    "name": "Brave Search MCP",
+    "kind": "mcp",
+    "description": "Official Brave integration for web, news, image, video, and other search tools.",
+    "reason": "An alternative search provider when Brave's search results or filters suit a task. Exa and Perplexity are already installed, so add this only if you want another provider. Requires a Brave Search API key.",
+    "url": "https://github.com/brave/brave-search-mcp-server",
+    "requiresAccount": true,
+    "matchNames": ["brave", "brave-search", "brave-search-mcp", "brave-search-mcp-server", "@brave/brave-search-mcp-server"],
+    "sourceRepo": "brave/brave-search-mcp-server"
+  },
+  {
+    "id": "mcp-docker-gateway",
+    "name": "Docker MCP Gateway",
+    "kind": "mcp",
+    "description": "Run and route containerized MCP servers through Docker's gateway and profiles.",
+    "reason": "Optional if you want a Docker-based MCP runtime shared by multiple coding agents. Requires Docker Desktop with MCP Toolkit, or Docker Engine with the gateway installed; it is not a general-purpose Docker administration server.",
+    "url": "https://docs.docker.com/ai/mcp-catalog-and-toolkit/mcp-gateway/",
+    "requiresAccount": false,
+    "matchNames": ["docker-mcp", "docker-mcp-gateway", "mcp-docker", "docker-gateway"]
+  },
+  {
+    "id": "skill-canvas-design",
+    "name": "canvas-design",
+    "kind": "skill",
+    "description": "Create static visual compositions as PNG or PDF files.",
+    "reason": "Adds a workflow for posters, visual handover material, and presentation graphics alongside your existing UI-design and document skills.",
+    "url": "https://github.com/anthropics/skills/tree/main/skills/canvas-design",
+    "requiresAccount": false,
+    "matchNames": ["canvas-design"],
+    "sourceRepo": "anthropics/skills",
+    "skillPath": "skills/canvas-design"
+  },
+  {
+    "id": "skill-internal-comms",
+    "name": "internal-comms",
+    "kind": "skill",
+    "description": "Draft structured status reports, leadership updates, FAQs, and incident communications.",
+    "reason": "Useful for turning SiteMonitor progress, decisions, and operational incidents into clear updates for estate owners and office staff.",
+    "url": "https://github.com/anthropics/skills/tree/main/skills/internal-comms",
+    "requiresAccount": false,
+    "matchNames": ["internal-comms", "internal-communications"],
+    "sourceRepo": "anthropics/skills",
+    "skillPath": "skills/internal-comms"
+  },
+  {
+    "id": "skill-theme-factory",
+    "name": "theme-factory",
+    "kind": "skill",
+    "description": "Apply coordinated color and font themes to slides, documents, and HTML artifacts.",
+    "reason": "An optional way to keep owner reports and presentation artifacts visually consistent. Your existing design-system and frontend skills already cover much of the application styling work.",
+    "url": "https://github.com/anthropics/skills/tree/main/skills/theme-factory",
+    "requiresAccount": false,
+    "matchNames": ["theme-factory"],
+    "sourceRepo": "anthropics/skills",
+    "skillPath": "skills/theme-factory"
+  },
+  {
+    "id": "skill-web-artifacts-builder",
+    "name": "web-artifacts-builder",
+    "kind": "skill",
+    "description": "Build and bundle multi-component React and Tailwind prototypes into a single HTML artifact.",
+    "reason": "Useful for isolated interactive demonstrations and stakeholder prototypes. Its React toolchain is separate from SiteMonitor's Rust/Dioxus application and should be used only when that prototype format is wanted.",
+    "url": "https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder",
+    "requiresAccount": false,
+    "matchNames": ["web-artifacts-builder"],
+    "sourceRepo": "anthropics/skills",
+    "skillPath": "skills/web-artifacts-builder"
+  },
+  {
+    "id": "skill-algorithmic-art",
+    "name": "algorithmic-art",
+    "kind": "skill",
+    "description": "Create generative p5.js artwork with seeded randomness and interactive parameters.",
+    "reason": "An optional creative tool for original visual assets and motion studies. It is a specialist art workflow rather than a requirement for the monitoring application.",
+    "url": "https://github.com/anthropics/skills/tree/main/skills/algorithmic-art",
+    "requiresAccount": false,
+    "matchNames": ["algorithmic-art"],
+    "sourceRepo": "anthropics/skills",
+    "skillPath": "skills/algorithmic-art"
+  },
+  {
+    "id": "skill-claude-api",
+    "name": "claude-api",
+    "kind": "skill",
+    "description": "Reference workflows for building applications with the Claude API and Anthropic SDKs.",
+    "reason": "Consider this only if you add Claude-powered functionality to an application. It is provider-specific, and actually calling Claude requires API access; it is not needed just to use your coding agents.",
+    "url": "https://github.com/anthropics/skills/tree/main/skills/claude-api",
+    "requiresAccount": true,
+    "matchNames": ["claude-api", "anthropic-api"],
+    "sourceRepo": "anthropics/skills",
+    "skillPath": "skills/claude-api"
+  }
+]
