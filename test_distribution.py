@@ -155,7 +155,7 @@ class DistributionTests(unittest.TestCase):
         self.assertIn('127.0.0.1:8877:8766',content)
         self.assertNotIn('docker.sock',content);self.assertNotIn(str(self.home),content)
         self.assertIn('sandbox-data:/data',content)
-        self.assertIn('MCP-and-Skills.git#v2.0.0',content)
+        self.assertIn('MCP-and-Skills.git#v2.0.1',content)
         self.assertEqual(support.project,support._owned()[2])
         support.compose.write_text(content+'\n# modified',encoding='utf-8')
         with mock.patch.object(support,'_call') as call,self.assertRaisesRegex(RuntimeError,'changed'):

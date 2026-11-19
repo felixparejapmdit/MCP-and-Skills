@@ -10,8 +10,8 @@ import re
 import shutil
 import subprocess
 
-IMAGE = 'mcp-and-skills-sandbox:2.0.0'
-SOURCE = 'https://github.com/felixparejapmdit/MCP-and-Skills.git#v2.0.0'
+IMAGE = 'mcp-and-skills-sandbox:2.0.1'
+SOURCE = 'https://github.com/felixparejapmdit/MCP-and-Skills.git#v2.0.1'
 DOCKER_URLS = {
     'Windows': 'https://docs.docker.com/desktop/setup/install/windows-install/',
     'Darwin': 'https://docs.docker.com/desktop/setup/install/mac-install/',

@@ -24,7 +24,7 @@ from platform_support import user_state_dir, resources_dir
 APP_DIR = resources_dir()
 HOME = Path.home()
 DEFAULT_STATE = user_state_dir()
-VERSION = '2.0.0'
+VERSION = '2.0.1'
 
 
 def now():

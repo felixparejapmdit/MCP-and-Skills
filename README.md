@@ -71,7 +71,7 @@ docker compose logs --tail 80
 docker compose down
 ```
 
-Generated configuration builds the public `v2.0.0` tag, uses a non-root user and a named volume, and publishes only on loopback. It mounts neither the host home nor the Docker socket. Explicitly removing the volume deletes sandbox data. See [Docker's Compose guide](https://docs.docker.com/compose/gettingstarted/).
+Generated configuration builds the public `v2.0.1` tag, uses a non-root user and a named volume, and publishes only on loopback. It mounts neither the host home nor the Docker socket. Explicitly removing the volume deletes sandbox data. See [Docker's Compose guide](https://docs.docker.com/compose/gettingstarted/).
 
 ## Themes, responsive layout, and PWA
 
@@ -140,4 +140,4 @@ On Windows, use `New-Item -ItemType Directory -Force .github/workflows` and `Cop
 
 Reopen the app and check `http://127.0.0.1:8766/health`. If another program owns that port, use the launcher's `--port` option. Inspect `helper.log` and `last-launch-error.json` in state. Publisher outages leave existing tools intact. Invalid profile JSON/TOML is preserved for repair. MCP sign-in happens in its agent; reinstalling a registration does not authenticate it.
 
-See [IMPLEMENTATION.md](IMPLEMENTATION.md) for architecture and APIs.
+See [IMPLEMENTATION.md](IMPLEMENTATION.md) for architecture and APIs, and [VALIDATION.md](VALIDATION.md) for completed checks and platform verification limits.

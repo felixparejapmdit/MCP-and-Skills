@@ -167,7 +167,13 @@ class _ArchiveSnapshot:
             return self.snapshot.read(path)
         data = self.archive.read(entry)
         if self.snapshot._blob(data) != recorded['sha']:
-            raise ConfigConflict('An archived source file did not match its pinned Git object.')
+            # git archive honors eol=crlf attributes (e.g. Impeccable's CMD
+            # launcher), while the Git tree identifies the canonical LF blob.
+            # Accept canonical bytes only when their full Git hash matches.
+            canonical = data.replace(b'\r\n', b'\n')
+            if self.snapshot._blob(canonical) != recorded['sha']:
+                raise ConfigConflict('An archived source file did not match its pinned Git object.')
+            return canonical
         return data
 
 

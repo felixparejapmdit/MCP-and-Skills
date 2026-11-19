@@ -199,7 +199,7 @@ def main():
         elif not args.bundle_only and system == 'Linux':
             linux_packages(bundle, artifacts, work, arch)
     files = [p for p in artifacts.iterdir() if p.is_file() and p.name.startswith('MCP-and-Skills-' + VERSION)]
-    manifest = {'version': VERSION, 'platform': system, 'architecture': arch, 'signed': signed,
+    manifest = {'version': VERSION, 'platform': system, 'architecture': arch, 'pythonVersion': platform.python_version(), 'signed': signed,
                 'notarized': bool(system == 'Darwin' and os.environ.get('MACOS_NOTARY_PROFILE')),
                 'artifacts': [{'name': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size} for p in files]}
     (artifacts / f'build-{system.lower()}-{arch}.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')

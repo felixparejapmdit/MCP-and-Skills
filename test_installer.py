@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from agent_adapters import AgentAdapter, ConfigConflict
-from installer import InstallEngine
+from installer import InstallEngine, _ArchiveSnapshot
 
 
 class InstallerTests(unittest.TestCase):
@@ -137,6 +138,26 @@ class InstallerTests(unittest.TestCase):
             plan = self.engine.plan(['mcp:context7'], ['gemini'])
             self.assertFalse(plan['canExecute'])
         self.assertFalse(original.config_path.exists())
+
+    def test_archive_line_ending_conversion_requires_matching_git_blob(self):
+        from skill_updates import _Snapshot
+        from types import SimpleNamespace
+        path = 'scripts/tool.cmd'
+        expected = b'@echo off\necho verified\n'
+        archive = self.root / 'source.zip'
+        commit = 'a' * 40
+        snapshot = SimpleNamespace(commit=commit, tree={path: {'mode': '100644', 'sha': _Snapshot._blob(expected)}}, _blob=_Snapshot._blob)
+        with zipfile.ZipFile(archive, 'w') as z:
+            z.writestr('source-' + commit + '/' + path, expected.replace(b'\n', b'\r\n'))
+        source = _ArchiveSnapshot(snapshot, archive, None, 'publisher/source')
+        self.assertEqual(expected, source.read(path))
+        source.archive.close()
+        with zipfile.ZipFile(archive, 'w') as z:
+            z.writestr('source-' + commit + '/' + path, b'@echo off\r\necho tampered\r\n')
+        source = _ArchiveSnapshot(snapshot, archive, None, 'publisher/source')
+        with self.assertRaises(ConfigConflict):
+            source.read(path)
+        source.archive.close()
 
 
 if __name__ == '__main__':

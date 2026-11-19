@@ -19,7 +19,7 @@ def check(base):
         with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers), timeout=30) as response:
             return json.loads(response.read())
     health = request('/health')
-    assert health['version'] == '2.0.0', health
+    assert health['version'] == '2.0.1', health
     token = request('/api/session')['token']
     catalog = request('/api/catalog')
     assert len(catalog['items']) == 355
