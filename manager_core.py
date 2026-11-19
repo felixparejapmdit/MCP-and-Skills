@@ -19,11 +19,12 @@ import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
+from platform_support import user_state_dir, resources_dir
 
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = resources_dir()
 HOME = Path.home()
-DEFAULT_STATE = Path(os.environ.get('LOCALAPPDATA', HOME / 'AppData/Local')) / 'AgentInventoryManager'
-VERSION = '1.0.0'
+DEFAULT_STATE = user_state_dir()
+VERSION = '2.0.0'
 
 
 def now():
@@ -166,6 +167,8 @@ class MCPUpdater:
                 continue
             for entry in entries:
                 p = Path(entry.get('installPath', '')) / '.mcp.json'
+                if not p.resolve().is_relative_to((home / '.claude/plugins').resolve()):
+                    continue
                 data = read_json(p, {})
                 if data.get('mcpServers'):
                     result.append(('claude-plugin', p, data, data['mcpServers']))
@@ -207,11 +210,19 @@ class MCPUpdater:
                 if commands and all(Path(command).resolve().is_relative_to(root) for command in commands):
                     return managed.get('version', 'Unknown')
             try:
-                path = self.home / 'AppData/Roaming/uv/tools/serena-agent/Lib/site-packages'
-                for meta in path.glob('serena_agent-*.dist-info/METADATA'):
-                    match = re.search(r'^Version: (.+)$', meta.read_text(encoding='utf-8'), re.M)
-                    if match:
-                        return match.group(1)
+                roots = [self.home / 'AppData/Roaming/uv/tools/serena-agent',
+                         self.home / '.local/share/uv/tools/serena-agent']
+                if os.environ.get('UV_TOOL_DIR'):
+                    roots.append(Path(os.environ['UV_TOOL_DIR']) / 'serena-agent')
+                if os.environ.get('XDG_DATA_HOME'):
+                    roots.append(Path(os.environ['XDG_DATA_HOME']) / 'uv/tools/serena-agent')
+                for root in roots:
+                    for pattern in ['Lib/site-packages/serena_agent-*.dist-info/METADATA',
+                                    'lib/python*/site-packages/serena_agent-*.dist-info/METADATA']:
+                        for meta in root.glob(pattern):
+                            match = re.search(r'^Version: (.+)$', meta.read_text(encoding='utf-8'), re.M)
+                            if match:
+                                return match.group(1)
             except OSError:
                 pass
             return 'Unknown'
@@ -235,7 +246,11 @@ class MCPUpdater:
                                 versions.append(meta.get('version'))
                                 break
         if not versions:
-            cache = Path(os.environ.get('LOCALAPPDATA', self.home / 'AppData/Local')) / 'npm-cache/_npx'
+            configured_cache = os.environ.get('npm_config_cache') or os.environ.get('NPM_CONFIG_CACHE')
+            cache_root = Path(configured_cache) if configured_cache else (
+                Path(os.environ.get('LOCALAPPDATA', self.home / 'AppData/Local')) / 'npm-cache'
+                if os.name == 'nt' else self.home / '.npm')
+            cache = cache_root / '_npx'
             if cache.exists():
                 for root in cache.iterdir():
                     meta = read_json(root / 'node_modules' / package / 'package.json', {})
@@ -287,7 +302,11 @@ class MCPUpdater:
         return exe
 
     def _node(self):
-        return shutil.which('node') or 'C:/Program Files/nodejs/node.exe'
+        from platform_support import find_node
+        node = find_node(self.state_dir)
+        if not node:
+            raise RuntimeError('Node is not installed. Use the catalog installer to provision a managed runtime.')
+        return str(node)
 
     def _npm_cli(self):
         candidates = [Path(self._npm()).parent / 'node_modules/npm/bin/npm-cli.js',
@@ -315,6 +334,9 @@ class MCPUpdater:
         return value
 
     def _node_for_engine(self, engine, progress=None):
+        if os.name != 'nt':
+            from platform_support import ensure_node
+            return str(ensure_node(engine or '>=20', self.state_dir, progress=progress))
         current = run([self._node(), '--version'], timeout=15).lstrip('v')
         if not engine or current in self._engine_matches([current], engine):
             return self._node()
@@ -481,7 +503,9 @@ class MCPUpdater:
             root = self.state_dir / 'runtimes/python/serena-agent' / version
             tool_dir, bin_dir = root / 'tools', root / 'bin'
             env = dict(os.environ, UV_TOOL_DIR=str(tool_dir), UV_TOOL_BIN_DIR=str(bin_dir))
-            run([str(Path('C:/Program Files/Python311/python.exe')), '-m', 'uv', 'tool', 'install', '--python', '3.13', 'serena-agent==' + version], env=env, timeout=600)
+            from platform_support import ensure_uv
+            uv = ensure_uv(self.state_dir, progress=progress)
+            run([uv, 'tool', 'install', '--python', '3.13', 'serena-agent==' + version], env=env, timeout=600)
             command = str(bin_dir / ('serena.exe' if os.name == 'nt' else 'serena'))
             if not Path(command).is_file():
                 raise RuntimeError('The staged Serena executable is missing')
@@ -521,12 +545,17 @@ class Manager:
     def __init__(self, home=HOME, state_dir=DEFAULT_STATE, app_dir=APP_DIR):
         self.home, self.state_dir, self.app_dir = Path(home), Path(state_dir), Path(app_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.export_dir = self.state_dir / 'exports'
         self.settings_path = self.state_dir / 'settings.json'
         self.settings = {'autoUpdate': True, 'intervalHours': 24, **read_json(self.settings_path, {})}
         self.state_path = self.state_dir / 'state.json'
         self.state = read_json(self.state_path, {'updates': [], 'lastCheck': None, 'lastUpdate': None, 'activity': []})
         self.job = None
         self.lock = threading.RLock()
+        self._install_engine = None
+        self._docker = None
+        from management_jobs import ManagementJobs
+        self.operations = ManagementJobs(self)
         self.token = secrets.token_urlsafe(32)
         self.mcp = MCPUpdater(home, state_dir, self.log)
         self._secrets = set()
@@ -633,6 +662,53 @@ class Manager:
     def availability(self, app='all'):
         return self.availability_tracker.scan(self, app)
 
+    def installer(self):
+        with self.lock:
+            if self._install_engine is None:
+                from installer import InstallEngine
+                from install_runtime import InstallRuntime
+                self._install_engine = InstallEngine(self.home, self.state_dir, self.app_dir,
+                    runtime=InstallRuntime(self.home, self.state_dir), log=self.log)
+            return self._install_engine
+
+    def catalog(self, app='all'):
+        return self.sanitize(self.installer().catalog(app))
+
+    def install_plan(self, payload):
+        if set(payload) - {'ids', 'targets', 'operation', 'options'}:
+            raise ValueError('Unknown installation plan field')
+        from management_jobs import remember_private_inputs
+        remember_private_inputs(self, payload.get('options', {}))
+        return self.sanitize(self.installer().plan(payload.get('ids'), payload.get('targets'),
+            operation=payload.get('operation', 'install'), options=payload.get('options', {})))
+
+    def execute_install(self, plan_id):
+        if not isinstance(plan_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,128}', plan_id):
+            raise ValueError('Invalid installation plan')
+        engine = self.installer()
+        if hasattr(engine, 'validate_plan'):
+            engine.validate_plan(plan_id)
+        return self.operations.start('install', lambda progress: engine.execute(plan_id, progress=progress),
+            'Preparing the selected agent installations.')
+
+    def install_history(self):
+        engine = self.installer()
+        history = engine.history() if callable(getattr(engine, 'history', None)) else getattr(engine, 'history', [])
+        return {'items': self.sanitize(history)}
+
+    def docker(self):
+        with self.lock:
+            if self._docker is None:
+                from docker_support import DockerSupport
+                self._docker = DockerSupport(self.state_dir, self.app_dir)
+            return self._docker
+
+    def docker_action(self, action):
+        if action not in {'start', 'stop'}:
+            raise ValueError('Unknown developer-container operation')
+        return self.operations.start('docker', lambda progress: getattr(self.docker(), action)(),
+            ('Starting' if action == 'start' else 'Stopping') + ' the isolated developer sandbox.')
+
     def suggestions(self):
         data = read_json(self.app_dir / 'suggestions.json', [])
         if isinstance(data, dict):
@@ -673,7 +749,7 @@ class Manager:
         if ids and (not known or set(ids) - known):
             raise ValueError('Only checked installed sources can be updated')
         with self.lock:
-            if self.job and self.job['status'] == 'running':
+            if (self.job and self.job['status'] == 'running') or self.operations.running():
                 raise RuntimeError('An update job is already running')
             self.job = {'id': secrets.token_hex(8), 'type': kind, 'status': 'running',
                         'progress': 0, 'message': 'Starting checks', 'startedAt': now()}
@@ -688,6 +764,14 @@ class Manager:
             with self.lock:
                 self.job['progress'] = 25
             units += self.skills.check_all(self.progress)
+            # Legacy installations remain visible, but a shared package cannot
+            # be changed behind an unselected agent's back. Only per-target
+            # managed receipts authorize automated replacement.
+            for unit in units:
+                unit['actionable'] = False
+                if unit.get('status') == 'update-available':
+                    unit['detail'] += ' Use the catalog to manage or migrate an existing installation for explicit target agents.'
+            units += self.installer().check_updates(progress=self.progress)
             units = self.sanitize(units)
             with self.lock:
                 self.state['updates'] = units
@@ -696,7 +780,8 @@ class Manager:
             self.persist()
             automatic = kind == 'check' and self.settings['autoUpdate']
             apply_now = kind == 'update' or automatic
-            candidates = [x for x in units if x.get('status') == 'update-available' and (not ids or x['id'] in ids)]
+            candidates = [x for x in units if x.get('status') == 'update-available' and
+                          x.get('actionable') is not False and (not ids or x['id'] in ids)]
             changed = False
             if apply_now:
                 for i, unit in enumerate(candidates):
@@ -704,8 +789,7 @@ class Manager:
                         self.log('Automatic updates paused; the current completed replacement was retained.')
                         break
                     try:
-                        provider = self.mcp if unit['id'].startswith('mcp:') else self.skills
-                        result = provider.apply(unit['id'], self.progress)
+                        result = self.installer().update_unit(unit['id'], progress=self.progress)
                         previous_version = unit.get('installedVersion')
                         if result.get('installedVersion'):
                             unit['installedVersion'] = result['installedVersion']
@@ -748,11 +832,13 @@ class Manager:
         inv = self.sanitize(self.inventory())
         availability = self.sanitize(self.availability())
         web = self.app_dir / 'web'
-        web.mkdir(exist_ok=True)
-        write_json(web / 'snapshot.json', inv)
+        self.export_dir.mkdir(parents=True, exist_ok=True)
+        write_json(self.export_dir / 'snapshot.json', inv)
         text = ('window.INVENTORY_FALLBACK=' + json.dumps(inv, ensure_ascii=True).replace('</', '<\\/') +
                 ';window.INVENTORY_AVAILABILITY=' + json.dumps(availability, ensure_ascii=True).replace('</', '<\\/') + ';\n')
-        (web / 'snapshot.js').write_text(text, encoding='utf-8')
+        if (self.app_dir / 'catalog.json').is_file():
+            text += 'window.INVENTORY_CATALOG=' + json.dumps(self.catalog(), ensure_ascii=True).replace('</', '<\\/') + ';\n'
+        (self.export_dir / 'snapshot.js').write_text(text, encoding='utf-8')
         index = web / 'index.html'
         css, script = web / 'styles.css', web / 'app.js'
         if index.is_file() and css.is_file() and script.is_file():
@@ -774,13 +860,14 @@ class Manager:
                 data_url = 'data:image/svg+xml;base64,' + base64.b64encode(icon.read_bytes()).decode('ascii')
                 standalone = re.sub(r'<link\b[^>]*\brel=["\'](?:shortcut )?icon["\'][^>]*>',
                     lambda _: '<link rel="icon" href="' + data_url + '">', standalone, flags=re.I)
-            output = self.app_dir / 'index.html'
+            output = self.export_dir / 'index.html'
             output.write_text(standalone, encoding='utf-8')
             # Keep the user's original Desktop entrypoint, with its original saved once.
             desktop = self.home / 'Desktop'
-            if self.app_dir.resolve() == (desktop / 'MCP and Agent Skills').resolve():
-                destination = desktop / 'MCP and Agent Skills.html'
-                backup = self.state_dir / 'backups/original-desktop-inventory.html'
+            destination = desktop / 'MCP and Agent Skills.html'
+            backup = self.state_dir / 'backups/original-desktop-inventory.html'
+            if (self.app_dir.resolve() == (desktop / 'MCP and Agent Skills').resolve() or
+                    (destination.is_file() and backup.is_file())):
                 if destination.is_file() and not backup.exists():
                     backup.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(destination, backup)

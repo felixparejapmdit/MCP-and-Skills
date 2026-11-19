@@ -182,7 +182,8 @@ class AvailabilityTracker:
         self.history = self._clean_history(saved if valid_history else {})
         if not self.history and not self.path.exists():
             # Capture the previous saved inventory before startup refreshes it.
-            previous = _read_json(self.app_dir / 'web/snapshot.json', {})
+            previous = _read_json(self.state_dir / 'exports/snapshot.json',
+                                 _read_json(self.app_dir / 'web/snapshot.json', {}))
             for key, row in inventory_items(previous, _portable_names(self.home)).items():
                 self.history[key] = self._history_row(row)
         self.persisted_fingerprint = self._fingerprint() if self.path.exists() and self.history_readable else None
@@ -293,7 +294,9 @@ class AvailabilityTracker:
         valid = {key: config_valid[key] and skill_valid[key] for key in APPS}
         warnings = [APP_NAMES[key] + ' could not be scanned completely; the last complete installation evidence is retained.'
                     for key in APPS if not valid[key]]
-        running = bool(manager.job and manager.job.get('status') == 'running')
+        operations = getattr(manager, 'operations', None)
+        running = bool((manager.job and manager.job.get('status') == 'running') or
+                       (operations and operations.running()))
         if running:
             warnings.append('An update is running; removal detection resumes after it completes.')
         if not self.history_readable:

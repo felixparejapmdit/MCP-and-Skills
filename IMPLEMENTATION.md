@@ -1,56 +1,61 @@
-# Local agent inventory manager
+# Local manager architecture
 
-This Desktop application manages the existing global Claude Code, Codex, and Gemini installations. It is local-only. Preserve the incumbent inventory's typography, colors, search, table, and collapsible groups.
+Version 2 uses a Python 3.11 standard-library HTTP helper with a static browser interface. Native packages bundle Python with PyInstaller. The default binding is `127.0.0.1:8766`. A controlled Docker sandbox binds internally on `0.0.0.0` and publishes only `127.0.0.1:8877`.
 
-## Runtime
+## Catalog and target ownership
 
-- Python 3.11 standard library backend, bound to 127.0.0.1:8766.
-- Persistent state, caches, backups, logs and update runtimes under `%LOCALAPPDATA%/AgentInventoryManager`.
-- Global skills remain in `~/.agents/skills`, with existing Claude/Gemini-specific copies and aliases preserved.
-- Configuration updates preserve secrets and unrelated fields. Secrets never appear in API responses, browser data, logs, suggestions, or HTML exports.
-- Automatic checks and supported updates default to every 24 hours; settings can pause or change the interval. The user explicitly requested automatic updates.
-- Source bundles update together. Preserve local adapters and local modifications, stage and validate before replacement, back up every replacement, and report conflicts instead of overwriting them.
-- Hosted MCP services and agent-bundled system skills are labeled provider-managed. Claude-synced private skills track their local publisher source.
-- Suggested new tools are displayed, not automatically installed.
+`catalog.json` contains public descriptions and pinned recipes for 18 MCPs and 337 skills. It contains no installed profiles, generated inventories, credentials, or private skill contents. Seven account-synced skills have no automatic recipe. `catalog.py` validates the schema, identities, source allowlists, target compatibility, and versions.
 
-## Skill provider interface (skill_updates.py)
+`agent_adapters.py` reads Claude JSON, Codex TOML, and Gemini JSON. It writes only selected current-user profiles, preserves unrelated data, validates parse equality, and rejects linked destinations. New skills go to agent-private user roots. Shared `.agents/skills` installations are detected, not silently converted.
 
-`SkillUpdater(home: pathlib.Path, state_dir: pathlib.Path, log=None)`
+`installer.py` is the lifecycle authority. A plan is a one-use opaque identifier backed by process-memory options, destination fingerprints, and exact versions. Browser-visible plans contain no launch credentials. Execution stages immutable downloads, checks destinations again, backs up affected files, commits selected mutations and ownership receipts, and rolls back failures. Local edits block replacement. Existing external installations are skipped and cannot be uninstalled here.
 
-- `discover()` returns sanitized skill inventory rows.
-- `check_all(progress=None)` returns a list of update-unit dictionaries.
-- `apply(unit_id, progress=None)` returns a result dictionary. Update only source IDs known to this provider.
+Migration is an explicit operation. Its public plan lists affected agents, removed visibility, and shared-folder removal. Execution backs up the shared source, creates selected private copies, then removes the original shared source. Ineligible local sources retain manual update status.
 
-Each update unit uses `id`, `name`, `kind`, `installedVersion`, `latestVersion`, `status`, `itemCount`, `sourceUrl`, and `detail`; optional `targetNames` helps attach one source check to multiple skills. Statuses: `up-to-date`, `update-available`, `host-managed`, `local-changes`, `error`, `updated`. No setup scripts/hooks from downloaded repositories are executed.
+`install_runtime.py` stages pinned npm packages with lifecycle scripts disabled and validates launcher paths. It can provision official checksum-verified Node/uv runtimes into user state without changing system Node. Skills use pinned GitHub archives validated against Git blob metadata. Repository hooks and setup scripts are not executed. Authentication is handled by the receiving agent/provider.
 
-## HTTP contract
+Owned per-target updates use IDs `install:<catalog-id>:<agent>`. Legacy discovery remains available for inventory and publisher checks with nonactionable external source units. Timed checks default to 24 hours and mutate only eligible owned installations. Provider-hosted deployments and app-bundled skills remain provider managed.
 
-- GET `/api/inventory`: `{mcp, skillGroups, stats, applications, generatedAt}`. MCP rows contain `id,name,description,apps,status,kind,sourceId`; groups contain `id,title,state,apps,names,count,kind,sourceId`.
-- GET `/api/availability?app=all|claude|codex|gemini`: `{selectedApp, generatedAt, applications, summary, items, scanComplete, warnings}`. Items distinguish `installed`, `missing`, and `not-installed` and include compatibility, removal evidence, and missing-runtime flags. History stores sanitized installation identities outside the repository.
-- GET `/api/session`: a fresh in-memory authorization token for reconnecting the PWA after a helper restart. This response is never cached or persisted in browser storage.
-- GET `/api/status`: `{job, settings, lastCheck, lastUpdate, helperVersion}`.
-- GET `/api/updates`: `{items, checkedAt}`.
-- GET `/api/suggestions`: `{items, checkedAt}`; each item has `id,name,kind,description,reason,url,requiresAccount`.
-- GET `/api/activity`: `{items}`.
-- POST `/api/check-updates`: background version check, automatic apply when configured; returns HTTP 202.
-- POST `/api/update`: `{ids?: [known-source-id]}`; updates only installed managed sources; returns HTTP 202.
-- POST `/api/settings`: `{autoUpdate?: boolean, intervalHours?: 6|12|24|48|168}`.
+## API
 
-Mutation endpoints accept JSON, require same-origin loopback requests and a generated `X-Inventory-Token` header. The backend injects the token into the served page as `window.INVENTORY_TOKEN`; no public CORS access. HTML loaded directly from disk retains its saved inventory and links to the local dashboard.
+All JSON API responses are `no-store`. Mutations require JSON, an exact allowed Origin/Host, and `X-Inventory-Token` from `/api/session`. Tokens live only in process/browser memory. There is no public CORS access.
 
-## Offline and PWA boundaries
+| Method | Route | Contract |
+| --- | --- | --- |
+| GET | `/health` | Application identity, version, readiness |
+| GET | `/api/session` | Fresh in-memory session token |
+| GET | `/api/inventory` | Sanitized installed MCP and skill groups |
+| GET | `/api/availability?app=all` | Installed/missing/removed evidence; accepts all, claude, codex, gemini |
+| GET | `/api/catalog?app=all` | Default items with detected/managed/shared states per agent |
+| POST | `/api/install/plan` | `{ids, targets, operation, options?}`; operation install, update, uninstall, migrate |
+| POST | `/api/install/execute` | `{planId}`; accepts only an executable server-held plan; returns 202 |
+| GET | `/api/install/status` | Background job, progress, sanitized result |
+| GET | `/api/install/history` | Safe transaction summaries |
+| GET | `/api/updates`, `/api/status` | Publisher versions, schedule, update job |
+| POST | `/api/check-updates`, `/api/update` | Check/apply eligible owned updates; optional `{ids}` for update |
+| POST | `/api/settings` | `{autoUpdate?, intervalHours?}` |
+| GET | `/api/suggestions`, `/api/activity` | Curated absent tools; sanitized activity |
+| GET | `/api/runtime` | OS, environment, prerequisites, startup state |
+| POST | `/api/runtime/startup` | `{enabled: boolean}`; current native user only |
+| GET | `/api/docker`, `/api/docker/status`, `/api/docker/logs` | Readiness, owned sandbox job, redacted logs |
+| POST | `/api/docker/generate` | `{mode: "sandbox"}`; creates app-owned Compose configuration |
+| POST | `/api/docker/start`, `/api/docker/stop` | `{}`; app-owned sandbox only |
+| POST | `/api/helper/stop` | `{}`; refuses while a mutation job runs |
 
-`/manifest.webmanifest` declares standalone mode and local icons. `/service-worker.js` fingerprints the generic shell and public static assets, so source changes produce a new cache version. The worker caches `/offline.html` and its static dependencies, never live `/`, `/index.html`, API responses, exported snapshots, mutations, cross-origin requests, or query-bearing requests.
+Installation options use catalog IDs, e.g. `{"mcp:filesystem":{"roots":["/absolute/folder"]}}` and `{"mcp:postgres":{"connectionString":"..."}}`. Secrets stay out of public plans, logs, and browser persistence. Original credential-bearing configs are kept only in private local backups. Jobs use status `running`, `done`, or `error`.
 
-The offline shell has no bootstrap credentials. The frontend keeps sanitized inventory, per-agent availability, suggestions, and save timestamps in browser storage, while the theme and agent preferences have separate keys. Offline actions remain read-only. The loopback helper remains required for fresh detection and global updates.
+## Distribution and state
 
-## Files
+`platform_support.py` resolves resources independently of cwd, OS-native state paths, and native x64/ARM64 runtime archives. Windows preserves `%LOCALAPPDATA%/AgentInventoryManager`; macOS uses Application Support/MCPandSkills; Linux uses XDG data/mcp-and-skills. Snapshots write into state/exports, never installed application resources.
 
-- `server.py`: loopback HTTP server, request validation, and scheduler startup.
-- `manager_core.py`: inventory, MCP runtime updates, jobs, settings, and snapshot exports.
-- `skill_updates.py`: source discovery, provenance checks, staged skill updates, and rollback.
-- `availability.py`: read-only installation scans, native compatibility, missing launchers, and durable removal evidence.
-- `web/`: browser interface; snapshots are generated locally and excluded from Git.
-- `suggestions.json`: curated additions filtered against the installed inventory.
-- `test_*.py`: isolated regression checks with temporary homes and mocked publishers.
-- PowerShell launchers: starting, stopping, and enabling per-user Windows startup.
+`launcher.py` provides launch/start/serve/stop/status and startup integration. A file lock prevents two launcher helpers sharing state. Startup uses a Windows VBS, macOS LaunchAgent, or Linux user systemd/XDG entry. The Windows installer is per-user; uninstall retains agent profiles and user state.
+
+`packaging/build.py` packages a strict public resource whitelist, native setup/DMG/AppImage/DEB artifacts, and checksums. It excludes personal snapshots and state. Build natively on each OS/architecture. `packaging/release-workflow.yml` is the prepared GitHub Actions definition for tests, native bundle API smoke checks, and Docker integration before publishing tag assets. Activation requires copying it into `.github/workflows` with a workflow-authorized login. Windows builds are verified locally; macOS/Linux and Docker integration remain pending that activation. Windows/macOS binaries are unsigned unless signing credentials are supplied.
+
+`docker_support.py` controls only a hash-owned generated Compose project. Its named volume contains isolated profiles and state. No host-home or Docker-socket mount is offered. Docker errors and logs are redacted. Docker is optional for native users.
+
+## PWA and verification
+
+The service worker fingerprints and caches only the generic shell/static assets. Live pages, session payloads, API responses, plans, mutations, and exports are excluded. Browser local storage retains only sanitized inventory/catalog/availability and preferences. Offline controls remain read-only.
+
+`test_*.py` use temporary homes and mocked publishers. `packaging/smoke.py` runs the actual bundled helper or a fresh container and verifies catalog detection, Gemini-only installation/uninstallation, and history. Browser checks cover real plan/apply flows, theme variants, and widths 320–1920px. No verification should mutate real agent profiles.

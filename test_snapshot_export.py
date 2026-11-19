@@ -30,7 +30,7 @@ class SnapshotExportTests(IsolatedManagerCase):
             with self.subTest(prefix=prefix):
                 self.assets(prefix)
                 self.manager.export_snapshot()
-                html = (self.manager.app_dir / 'index.html').read_text(encoding='utf-8')
+                html = (self.manager.export_dir / 'index.html').read_text(encoding='utf-8')
                 self.assertNotRegex(html, r'<script[^>]+\bsrc=')
                 self.assertNotRegex(html, r'<link[^>]+rel="(?:stylesheet|manifest|apple-touch-icon)"')
                 self.assertIn('dataset.theme = "dark"', html)
@@ -40,6 +40,8 @@ class SnapshotExportTests(IsolatedManagerCase):
                 self.assertIn('window.INVENTORY_AVAILABILITY=', html)
                 self.assertNotIn('PWA must not run', html)
                 self.assertNotIn(self.manager.token, html)
+                self.assertFalse((self.manager.app_dir / 'index.html').exists())
+                self.assertFalse((self.manager.app_dir / 'web/snapshot.json').exists())
 
     def test_snapshot_payload_cannot_close_its_script_or_capture_session_token(self):
         self.assets()
@@ -47,12 +49,12 @@ class SnapshotExportTests(IsolatedManagerCase):
             'name': 'fixture</script><script>unexpected()</script>',
             'sourceId': 'skill:fixture', 'sourceName': 'Fixture', 'apps': ['Codex']}]
         self.manager.export_snapshot()
-        html = (self.manager.app_dir / 'index.html').read_text(encoding='utf-8')
+        html = (self.manager.export_dir / 'index.html').read_text(encoding='utf-8')
         self.assertNotIn('</script><script>unexpected()', html)
         self.assertIn('<\\/script>', html)
         self.assertNotIn(self.manager.token, html)
         self.assertNotIn('window.INVENTORY_TOKEN=', html)
-        snapshot = (self.manager.app_dir / 'web/snapshot.js').read_text(encoding='utf-8')
+        snapshot = (self.manager.export_dir / 'snapshot.js').read_text(encoding='utf-8')
         self.assertNotIn(self.manager.token, snapshot)
 
     def test_original_desktop_inventory_is_backed_up_once(self):

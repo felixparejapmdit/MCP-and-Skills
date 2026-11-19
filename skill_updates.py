@@ -403,6 +403,7 @@ class _Bundle:
     def title(self):
         return _BINDINGS[self.key][2] if self.key in _BINDINGS else {
             "claude-synced": "Claude-published portable skills", "codex-system": "Codex system skills",
+            "installer-owned": "Agent-specific managed installations",
             "claude-native": "Claude-native skills", "local": "Other local skills",
         }.get(self.key, self.key)
 
@@ -497,6 +498,8 @@ class SkillUpdater:
                 key = "claude-synced"
             if native:
                 key = "codex-system"
+            if metadata.get("managedBy") == "mcp-and-skills":
+                key = "installer-owned"
             if name in _BOUND and "Claude" in apps:
                 key = "claude-native"
             key = key or "local"
@@ -537,6 +540,9 @@ class SkillUpdater:
                 add(path.parent, ["Codex", "Gemini"])
         for path in sorted((self.home / ".gemini" / "skills").glob("*/SKILL.md")):
             add(path.parent, ["Gemini"])
+        for path in sorted((self.home / ".codex" / "skills").glob("*/SKILL.md")):
+            if not path.parent.name.startswith("."):
+                add(path.parent, ["Codex"])
         for path in sorted((self.home / ".claude" / "skills").glob("*/SKILL.md")):
             add(path.parent, ["Claude"])
         synced = self.home / ".claude" / "skills" / "synced"

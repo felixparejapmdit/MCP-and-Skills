@@ -1,0 +1,22 @@
+# Developer sandbox. Agent installations here are inside /data, not on the host.
+services:
+  dashboard:
+    build:
+      context: .
+    image: mcp-and-skills-sandbox:2.0.0
+    pull_policy: never
+    init: true
+    ports:
+      - "127.0.0.1:8877:8766"
+    environment:
+      MCP_SKILLS_CONTAINER: "1"
+      MCP_SKILLS_SANDBOX: "1"
+    volumes:
+      - sandbox-data:/data
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  sandbox-data:

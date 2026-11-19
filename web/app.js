@@ -7,6 +7,7 @@
   const state = {inventory:null,updates:[],suggestions:[],activity:[],settings:null,job:null,connected:false,pending:false,saving:false,lastCheck:null,lastUpdate:null,checkedAt:null,suggestionsAt:null,lastJobKey:null,pollTimer:null,loading:false};
   let token = typeof window.INVENTORY_TOKEN === 'string' ? window.INVENTORY_TOKEN : '';
   Object.assign(state,{availability:null,availabilityByApp:{},availabilityState:'missing',availabilityLimit:60,resourceGeneration:0,lastResourcesAt:0,savedAt:null});
+  Object.assign(state,{catalog:null,catalogByApp:{},catalogLimit:60,catalogSelection:new Set(),installRequest:null,installPlan:null,installJob:null,installHistory:[],installPending:false,installPolling:false,installGeneration:0,dockerGeneration:0,dialogTrigger:null,docker:null,dockerJob:null,dockerPending:false,dockerGenerated:false,runtime:null,startupSaving:false});
   const STATUS = {
     'up-to-date':['Up to date','current'], 'updated':['Updated','current'],
     'update-available':['Update available','available'], 'host-managed':['Provider-managed','managed'],
@@ -48,9 +49,9 @@
   function inventoryGroups() { return Array.isArray(state.inventory?.skillGroups)?state.inventory.skillGroups:[]; }
   function namesOf(group) { return (group.names||[]).map(item=>typeof item==='string'?item:item.name).filter(Boolean); }
   function allMcp() { return Array.isArray(state.inventory?.mcp)?state.inventory.mcp:[]; }
-  function busy() { return state.pending || state.saving || state.job?.status==='running'; }
+  function busy() { return state.pending || state.saving || state.installPending || state.job?.status==='running' || state.installJob?.status==='running'; }
   function writable() { return isLivePage && state.connected && !!token; }
-  function updateAvailable(item) { return item?.status==='update-available'; }
+  function updateAvailable(item) { return item?.status==='update-available'&&item.actionable!==false; }
   function findUnit(item) {
     const id = item.sourceId || item.updateSource;
     const explicit=typeof id==='object'?(id.id||id.sourceId):id;
@@ -105,7 +106,7 @@
     $('#footer-state').textContent=state.connected?'Connected to your local manager.':'Offline snapshot. Reconnect to manage installations.';
     $('#skills-description').textContent=app==='all'?`${shared} shared portable skills, plus agent-specific sources. Matching capabilities can appear in more than one source.`:`Skill sources available to ${APP_NAMES[app]}. Shared publisher updates apply globally.`;
     $('#breadcrumb-target').textContent=APP_NAMES[app];
-    $('#agent-context').textContent=app==='all'?'Your complete toolkit, with gaps across compatible agents.':`Showing ${APP_NAMES[app]} installations. Publisher updates remain global.`;
+    $('#agent-context').textContent=app==='all'?'Your complete toolkit, with gaps across compatible agents.':`Showing ${APP_NAMES[app]} installations. Choose install targets separately.`;
     for(const button of $$('[data-agent]')){const active=button.dataset.agent===app;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));}
     for(const agent of availability?.applications||[]){const el=$('#agent-'+agent.id+'-status');if(el)el.textContent=agent.cliInstalled?'CLI installed':agent.configured?'Configuration found':'Not detected';}
     const missing=availability?.summary?.missingCount||0;
@@ -202,7 +203,7 @@
     $('#check-updates').textContent=state.pending?'Starting...':running&&state.job.type?.includes('check')?'Checking...':'Check for updates';
     $('#auto-update').disabled=!writable()||state.saving;$('#update-interval').disabled=!writable()||state.saving;
     if(state.settings&&!state.saving){$('#auto-update').checked=!!state.settings.autoUpdate;$('#update-interval').value=String(state.settings.intervalHours||24);}
-    $('#schedule-note').textContent=state.saving?'Saving your update schedule...':state.connected&&state.settings?(state.settings.autoUpdate?`Automatic checks and supported updates run every ${state.settings.intervalHours} hours. Provider-managed services stay with their publishers.`:'Automatic updates are paused. You can still check and update sources here.'):'Open the live dashboard to manage the update schedule.';
+    $('#schedule-note').textContent=state.saving?'Saving your update schedule...':state.connected&&state.settings?(state.settings.autoUpdate?`Managed installations are checked every ${state.settings.intervalHours} hours. Updates retain their registered agent targets.`:'Automatic updates are paused. You can still check and update sources here.'):'Open the live dashboard to manage the update schedule.';
     for(const button of $$('[data-update-id]'))button.disabled=!writable()||busy();
     const panel=$('#job-panel'),job=state.job;panel.hidden=!job;
     if(job){
@@ -222,6 +223,7 @@
       $('#open-dashboard').hidden=isLivePage&&!state.connected;$('#retry-helper').hidden=!isLivePage||state.connected;
     }
     $('#updates').setAttribute('aria-busy',String(running));
+    renderManagementControls();
   }
   function filterInventory() {
     const query=$('#search').value.trim().toLowerCase(),app=$('#app-filter').value,status=$('#mcp-status').value;
@@ -243,9 +245,10 @@
     if(state.suggestions.length){$('#suggestions-empty').hidden=suggestions>0;$('#suggestions-empty').textContent=query?'No suggestions match your search.':'No additional tools are suggested for your current inventory.';}
     for(const cell of $$('[data-agent-column]'))cell.hidden=app!=='all'&&cell.dataset.agentColumn!==app;
     renderAvailability();
+    renderCatalog();
     $('#results').textContent=`${mcpCount} MCP ${mcpCount===1?'server':'servers'}, ${skillCount} skill entries, and ${commandCount} commands match${app!=='all'?' '+APP_NAMES[app]:''}.`;
   }
-  function render() {renderHeader();renderMcp();renderGroups();renderUpdates();renderSuggestions();renderActivity();renderControls();decorateTables();filterInventory();}
+  function render() {renderHeader();renderMcp();renderGroups();renderUpdates();renderSuggestions();renderActivity();renderControls();decorateTables();filterInventory();renderInstallHistory();renderRuntime();renderDocker();}
   function message(text,type='') { const element=$('#action-message');element.textContent=text;element.className='action-message '+type;element.hidden=!text; }
   async function api(path, options={},allowRetry=true) {
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
@@ -266,10 +269,10 @@
   async function refreshResources(force=false) {
     if(state.loading&&!force)return;state.loading=true;
     const generation=++state.resourceGeneration,app=selectedAgent();renderControls();
-    const routes=['/api/inventory','/api/updates','/api/suggestions','/api/activity','/api/availability?app='+app];
+    const routes=['/api/inventory','/api/updates','/api/suggestions','/api/activity','/api/availability?app='+app,'/api/catalog?app='+app,'/api/install/history'];
     const results=await Promise.allSettled(routes.map(route=>api(route)));
     if(generation!==state.resourceGeneration)return;
-    const [inventory,updates,suggestions,activity,availability]=results;
+    const [inventory,updates,suggestions,activity,availability,catalog,history]=results;
     if(inventory.status==='fulfilled')state.inventory=normalizeInventory(inventory.value);
     if(updates.status==='fulfilled'){state.updates=updates.value.items||[];state.checkedAt=updates.value.checkedAt;$('#updates-error').hidden=true;}
     else{$('#updates-error').textContent='Publisher information could not be loaded. Your installed inventory is still available.';$('#updates-error').hidden=false;}
@@ -278,12 +281,15 @@
     if(activity.status==='fulfilled')state.activity=activity.value.items||[];
     if(availability.status==='fulfilled'&&availability.value.selectedApp===app){state.availability=availability.value;state.availabilityByApp[app]=availability.value;$('#availability-error').hidden=true;}
     else{$('#availability-error').textContent='Installation status could not be refreshed. Check the helper and try Refresh inventory.';$('#availability-error').hidden=false;}
+    if(catalog.status==='fulfilled'&&Array.isArray(catalog.value.items)){state.catalog=catalog.value;state.catalogByApp[app]=catalog.value;$('#catalog-error').hidden=true;}
+    else{$('#catalog-error').textContent=state.catalog?'The catalog could not be refreshed. Saved data is still available.':'The default catalog could not be loaded. Check the helper and refresh inventory.';$('#catalog-error').hidden=false;}
+    if(history.status==='fulfilled')state.installHistory=Array.isArray(history.value.items)?history.value.items:[];
     state.loading=false;state.lastResourcesAt=Date.now();saveOffline();render();
     return inventory.status==='fulfilled'&&availability.status==='fulfilled';
   }
   function schedulePoll() {
     clearTimeout(state.pollTimer);
-    if(isLivePage&&!document.hidden)state.pollTimer=setTimeout(pollStatus,state.job?.status==='running'?1200:state.connected?15000:8000);
+    if(isLivePage&&!document.hidden)state.pollTimer=setTimeout(pollStatus,state.job?.status==='running'||state.installJob?.status==='running'||state.dockerJob?.status==='running'?1200:state.connected?15000:8000);
   }
   async function pollStatus() {
     if(!isLivePage)return;
@@ -292,6 +298,8 @@
       const previousRunning=state.job?.status==='running';
       if(!wasConnected||!token)await refreshSession();
       state.connected=true;state.settings=status.settings||state.settings;state.job=status.job||null;state.lastCheck=status.lastCheck;state.lastUpdate=status.lastUpdate;
+      if(!wasConnected)refreshRuntime();
+      await pollManagementJobs();
       const key=state.job?`${state.job.id}:${state.job.status}`:'none';
       const completed=previousRunning&&state.job?.status!=='running';
       const changed=key!==state.lastJobKey;state.lastJobKey=key;
@@ -332,7 +340,7 @@
     const inv=state.inventory||{};
     const inventory={mcp:inv.mcp||[],skillGroups:inv.skillGroups||[],stats:inv.stats||{},applications:inv.applications||[],generatedAt:inv.generatedAt,plugins:inv.plugins||[]};
     state.savedAt=new Date().toISOString();
-    try { localStorage.setItem('mcp-skills:offline:v1',JSON.stringify({inventory,availabilityByApp:state.availabilityByApp,suggestions:state.suggestions,savedAt:state.savedAt})); } catch {}
+    try { localStorage.setItem('mcp-skills:offline:v1',JSON.stringify({inventory,availabilityByApp:state.availabilityByApp,catalogByApp:safeCatalogCache(),suggestions:state.suggestions,savedAt:state.savedAt})); } catch {}
   }
   function decorateTables() {
     for(const table of $$('table')){
@@ -368,6 +376,7 @@
   function selectAgent(app) {
     if(!['all','claude','codex','gemini'].includes(app))app='all';
     $('#app-filter').value=app;
+    state.catalog=state.catalogByApp[app]||null;state.catalogLimit=60;
     try{localStorage.setItem('mcp-skills:agent',app);}catch{}
     state.availability=state.availabilityByApp[app]||null;state.availabilityLimit=60;renderHeader();filterInventory();
     if(state.connected)refreshResources(true);
@@ -377,14 +386,324 @@
     $('#menu-toggle').setAttribute('aria-expanded',String(open));
     if(open)$('#sidebar nav a').focus();else $('#menu-toggle').focus({preventScroll:true});
   }
+  function catalogItems() { return Array.isArray(state.catalog?.items)?state.catalog.items:[]; }
+  function agentList(value) { return Array.isArray(value)?value.map(normalizedApp).filter(app=>['claude','codex','gemini'].includes(app)):[]; }
+  function catalogAgentState(item,app) {
+    const raw=item.states?.[app],value=typeof raw==='string'?{state:raw}:raw||{};
+    const known=raw!==undefined||Array.isArray(item.installedAgents)||Array.isArray(item.managedAgents)||Array.isArray(item.sharedAgents);
+    const managed=value.managed===true||agentList(item.managedAgents).includes(app);
+    const shared=agentList(item.sharedAgents).includes(app);
+    const installed=managed||shared||agentList(item.installedAgents).includes(app)||['installed','existing','managed','shared','configured','needs-auth','needs-authentication'].includes(value.state);
+    return {...value,known,managed,shared,installed,state:managed?'managed':shared?'shared':installed?'existing':value.state||(known?'not-installed':'unknown')};
+  }
+  function catalogScope(item) { const supported=agentList(item.supportedAgents);return selectedAgent()==='all'?(supported.length?supported:['claude','codex','gemini']):[selectedAgent()]; }
+  function catalogManaged(item) { return ['claude','codex','gemini'].filter(app=>catalogAgentState(item,app).managed); }
+  function filteredCatalog() {
+    const query=$('#search').value.trim().toLowerCase(),kind=$('#catalog-kind').value,filter=$('#catalog-filter').value;
+    return catalogItems().filter(item=>{
+      if(kind!=='all'&&item.kind!==kind)return false;
+      const supported=agentList(item.supportedAgents);
+      if(selectedAgent()!=='all'&&supported.length&&!supported.includes(selectedAgent()))return false;
+      const scope=catalogScope(item),states=scope.map(app=>catalogAgentState(item,app));
+      if(filter==='missing'&&!states.some(x=>x.known&&!x.installed))return false;
+      if(filter==='installed'&&!states.some(x=>x.installed))return false;
+      if(filter==='managed'&&!states.some(x=>x.managed))return false;
+      if(filter==='installable'&&item.installable===false)return false;
+      return !query||[item.name,item.id,item.description,item.kind,item.reason,item.sourceUrl].join(' ').toLowerCase().includes(query);
+    });
+  }
+  function catalogAction(item,action,label,style='') {
+    const button=node('button',{type:'button',class:'button small '+style,text:label,disabled:!writable()||busy()});
+    button.dataset.catalogAction=action;button.dataset.itemId=item.id;return button;
+  }
+  function renderCatalog() {
+    const list=$('#catalog-list');if(!list)return;list.replaceChildren();
+    const items=filteredCatalog(),shown=items.slice(0,state.catalogLimit),all=catalogItems();
+    for(const item of shown){
+      const row=node('div',{class:'catalog-row'});
+      const check=node('input',{type:'checkbox','aria-label':'Select '+item.name,disabled:item.installable===false||!writable()||busy()});
+      check.checked=state.catalogSelection.has(item.id);check.dataset.catalogSelect=item.id;
+      const content=node('div'),name=node('div',{class:'catalog-name'},[node('strong',{text:item.name||item.id}),node('span',{class:'kind-label',text:item.kind==='mcp'?'MCP server':'Agent skill'})]);
+      if(item.version)name.append(node('span',{class:'version-value',text:item.version}));
+      content.append(name,node('p',{class:'catalog-description',text:item.description||''}));
+      const presence=node('div',{class:'catalog-presence'});
+      for(const app of catalogScope(item)){
+        const s=catalogAgentState(item,app),label=s.managed?'Managed':s.shared?'Shared':s.installed?'Existing':/unsupported|unavailable/.test(s.state)?'Unsupported':!s.known?'Not scanned':'Not installed';
+        presence.append(node('span',{class:'agent-state '+(s.managed?'managed':s.shared?'shared':''),text:APP_NAMES[app]+': '+label}));
+      }
+      content.append(presence);
+      if(item.reason||item.installable===false)content.append(node('p',{class:'catalog-reason',text:item.reason||'This item is managed by its publisher or requires a manual source.'}));
+      const actions=node('div',{class:'catalog-actions'});
+      if(item.installable!==false)actions.append(catalogAction(item,'install','Choose agents'));
+      if(catalogManaged(item).length){actions.append(catalogAction(item,'update','Update'));actions.append(catalogAction(item,'uninstall','Uninstall','danger-action'));}
+      if(state.catalog?.capabilities?.sharedMigration&&agentList(item.sharedAgents).length)actions.append(catalogAction(item,'migrate','Review migration'));
+      const url=safeUrl(item.sourceUrl||item.url);if(url)actions.append(node('a',{class:'quiet-button',href:url,target:'_blank',rel:'noopener noreferrer','aria-label':'View '+item.name+' publisher'},['Publisher',icon('arrow')]));
+      row.append(check,content,actions);list.append(row);
+    }
+    const counts={mcp:all.filter(x=>x.kind==='mcp').length,skill:all.filter(x=>x.kind==='skill').length};
+    $('#catalog-count').textContent=all.length?counts.mcp+' MCPs / '+counts.skill+' skills':'Catalog unavailable';
+    $('#catalog-empty').hidden=items.length>0;
+    $('#catalog-empty').textContent=!all.length?(state.connected?'The default catalog is not available yet. Refresh after the manager is ready.':'Reconnect to load the default catalog. Saved installations remain available.'):'No catalog items match these filters.';
+    $('#catalog-more').hidden=items.length<=state.catalogLimit;
+    $('#catalog-more').textContent='Show more tools ('+Math.max(0,items.length-state.catalogLimit)+' remaining)';
+    $('#catalog-selection-count').textContent=state.catalogSelection.size?state.catalogSelection.size+' tools selected':'No tools selected';
+    $('#catalog-install-selected').disabled=!writable()||busy()||!state.catalogSelection.size;
+    $('#catalog-select-visible').disabled=!writable()||busy()||!shown.some(x=>x.installable!==false);
+    $('#catalog-clear').disabled=!state.catalogSelection.size;
+  }
+  function safeCatalogCache() {
+    const output={};
+    for(const [app,data] of Object.entries(state.catalogByApp)){
+      if(!['all','claude','codex','gemini'].includes(app)||!Array.isArray(data?.items))continue;
+      output[app]={version:data.version,generatedAt:data.generatedAt,items:data.items.map(item=>{
+        const clean={};
+        for(const key of ['id','name','kind','description','sourceUrl','version','installable','reason','supportedAgents','supportedPlatforms','requiresAuth','installedAgents','managedAgents','sharedAgents'])if(item[key]!==undefined)clean[key]=item[key];
+        clean.states={};for(const target of ['claude','codex','gemini']){const raw=item.states?.[target];if(typeof raw==='string')clean.states[target]=raw;else if(raw&&typeof raw==='object')clean.states[target]={state:raw.state,managed:raw.managed,reason:raw.reason};}
+        return clean;
+      })};
+    }
+    return output;
+  }
+  function installItems() { return (state.installRequest?.ids||[]).map(id=>catalogItems().find(item=>item.id===id)).filter(Boolean); }
+  function installTargets() { return $$('#install-targets input:checked').filter(el=>!el.disabled).map(el=>el.value); }
+  function invalidateInstallPlan() {
+    state.installPlan=null;$('#install-review').hidden=true;$('#install-execute').disabled=true;
+    $('#install-error').hidden=true;$('#install-dialog-state').textContent='Nothing changes until you review and apply the plan.';
+  }
+  function closeInstallDialog() {
+    if(state.installPending)return;
+    const dialog=$('#install-dialog');dialog.close();
+    for(const field of $$('#install-options input,#install-options textarea'))field.value='';
+    state.installRequest=null;state.installPlan=null;$('#install-options').replaceChildren();
+    state.dialogTrigger?.focus?.({preventScroll:true});
+  }
+  function openInstallDialog(ids,operation='install') {
+    if(!writable()||busy())return;
+    const items=ids.map(id=>catalogItems().find(item=>item.id===id)).filter(Boolean);
+    if(!items.length)return;
+    state.dialogTrigger=document.activeElement;state.installRequest={ids:items.map(x=>x.id),operation};state.installPlan=null;
+    const verb={install:'Install',update:'Update',uninstall:'Uninstall',migrate:'Migrate'}[operation]||'Install';
+    $('#install-dialog-title').textContent=verb+' '+(items.length===1?items[0].name:items.length+' tools');
+    $('#install-dialog-description').textContent=operation==='uninstall'?'Remove only registrations and files owned by this manager for the agents you choose.':'Choose the agents that should receive these tools globally for your user account.';
+    $('#install-execute').textContent=operation==='uninstall'?'Uninstall selected':operation==='migrate'?'Apply migration':verb+' selected';
+    $('#install-selected-tools').replaceChildren(...items.slice(0,20).map(item=>node('span',{class:'selected-tool',text:item.name})));
+    if(items.length>20)$('#install-selected-tools').append(node('span',{class:'selected-tool',text:'+'+(items.length-20)+' more'}));
+    let saved=[];try{const value=JSON.parse(localStorage.getItem('mcp-skills:install-targets')||'[]');saved=agentList(value);}catch{}
+    const defaults=selectedAgent()==='all'?saved:[selectedAgent()];
+    for(const input of $$('#install-targets input')){
+      const supported=items.some(item=>{const list=agentList(item.supportedAgents);return !list.length||list.includes(input.value);});
+      const owned=items.some(item=>catalogAgentState(item,input.value).managed);
+      input.disabled=!supported||(['update','uninstall'].includes(operation)&&!owned);
+      input.checked=!input.disabled&&defaults.includes(input.value);
+    }
+    $('#install-targets legend').textContent=operation==='uninstall'?'Remove from these agents':'Apply to these agents';
+    const shared=[...new Set(items.flatMap(item=>agentList(item.sharedAgents)))];
+    $('#shared-install-notice').hidden=!shared.length;
+    $('#shared-install-description').textContent=operation==='migrate'?'The plan must account for every agent affected by the existing shared folder. Review all changes before continuing.':'These tools are already shared with '+shared.map(x=>APP_NAMES[x]).join(', ')+'. Existing shared files are preserved. A private installation does not remove their current shared visibility.';
+    const options=$('#install-options');options.replaceChildren();
+    if(operation!=='uninstall'&&operation!=='migrate'){
+      if(items.some(x=>x.id==='mcp:filesystem'))options.append(node('label',{class:'install-option'},[node('span',{text:'Filesystem access folders'}),node('textarea',{id:'install-filesystem-roots',placeholder:'One absolute folder path per line',spellcheck:'false'}),node('small',{text:'Choose the folders the Filesystem MCP may access. Leave blank during an update to preserve existing roots.'})]));
+      if(items.some(x=>x.id==='mcp:postgres'))options.append(node('label',{class:'install-option'},[node('span',{text:'PostgreSQL connection string'}),node('input',{id:'install-postgres-connection',type:'password',autocomplete:'new-password',placeholder:'postgresql://user:password@host:5432/database',spellcheck:'false'}),node('small',{text:'Used only for the selected agent configurations. It is not stored in browser history or offline snapshots. Leave blank during an update to preserve the existing value.'})]));
+    }
+    invalidateInstallPlan();$('#install-dialog').showModal();renderManagementControls();
+    setTimeout(()=>$('#install-targets input:not(:disabled)')?.focus(),0);
+  }
+  function collectInstallOptions() {
+    const options={},roots=$('#install-filesystem-roots'),pg=$('#install-postgres-connection');
+    if(roots?.value.trim())options['mcp:filesystem']={roots:roots.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)};
+    if(pg?.value.trim())options['mcp:postgres']={connectionString:pg.value.trim()};
+    return options;
+  }
+  function privateSafeText(value) {
+    let text=String(value||'');
+    const secret=$('#install-postgres-connection')?.value;
+    if(secret&&secret.length>=4)text=text.split(secret).join('[private connection string]');
+    return text.replace(/([a-z]+:\/\/)[^\s/@]+:[^\s/@]+@/gi,'$1[private credentials]@');
+  }
+  function planEntry(value) {
+    if(typeof value==='string')return privateSafeText(value);
+    if(!value||typeof value!=='object')return String(value||'');
+    return privateSafeText([value.action||value.operation,value.target||value.agent,value.name||value.itemName||value.itemId||value.id,value.path||value.location,value.description||value.message||value.reason].filter(Boolean).join(' / '));
+  }
+  function listValues(value) { return Array.isArray(value)?value:value&&typeof value==='object'?Object.entries(value).map(([key,item])=>typeof item==='string'?key+': '+item:{name:key,...item}):value?[value]:[]; }
+  function renderPlanGroup(root,title,values,classes='') {
+    root.replaceChildren();const items=listValues(values);if(!items.length)return;
+    const section=node('div',{class:'plan-group '+classes},[node('h4',{text:title}),node('ul',{},items.map(value=>node('li',{text:planEntry(value)})))]);
+    root.append(section);
+  }
+  async function requestInstallPlan() {
+    if(!state.installRequest||state.installPending||!writable())return;
+    const targets=installTargets();if(!targets.length){$('#install-error').textContent='Select at least one agent.';$('#install-error').hidden=false;return;}
+    invalidateInstallPlan();state.installPending=true;renderManagementControls();
+    try{
+      const payload={...state.installRequest,targets,options:collectInstallOptions()};
+      const result=await api('/api/install/plan',{method:'POST',body:JSON.stringify(payload)});
+      const plan=result.plan||result;state.installPlan=plan;
+      $('#install-review').hidden=false;
+      $('#install-review-summary').textContent=state.installRequest.ids.length+' selected tools / '+targets.map(x=>APP_NAMES[x]).join(', ')+' / global user scope';
+      renderPlanGroup($('#install-plan-changes'),'Changes',plan.changes);
+      if(plan.migrations?.length){
+        const details=plan.migrations.map(item=>'Shared folder removed after backup: '+item.id+'. Affected agents: '+agentList(item.affectedAgents).map(x=>APP_NAMES[x]).join(', ')+'. Removed from: '+(agentList(item.removedFromAgents).map(x=>APP_NAMES[x]).join(', ')||'none')+'.');
+        $('#install-plan-changes').append(node('div',{class:'plan-group conflicts'},[node('h4',{text:'Shared folder migration'}),node('ul',{},details.map(text=>node('li',{text})))]));
+      }
+      renderPlanGroup($('#install-plan-dependencies'),'Dependencies',plan.dependencies);
+      renderPlanGroup($('#install-plan-conflicts'),'Items to review',plan.conflicts,'conflicts');
+      const required=listValues(plan.requiresInput);$('#install-input-required').hidden=!required.length;
+      $('#install-input-required').textContent=required.length?'Additional input is required: '+required.map(planEntry).join('; ')+'. Complete the fields above and review the plan again.':'';
+      $('#install-dialog-state').textContent=plan.canExecute===true?'Plan ready. Apply it to change only the reviewed targets.':'This plan needs attention before it can be applied.';
+      try{localStorage.setItem('mcp-skills:install-targets',JSON.stringify(targets));}catch{}
+    }catch(error){$('#install-error').textContent=privateSafeText(error.message);$('#install-error').hidden=false;}
+    finally{state.installPending=false;renderManagementControls();}
+  }
+  async function executeInstallPlan() {
+    const plan=state.installPlan;if(!plan?.id||plan.canExecute!==true||state.installPending||!writable())return;
+    state.installPending=true;renderManagementControls();
+    try{
+      const result=await api('/api/install/execute',{method:'POST',body:JSON.stringify({planId:plan.id})});
+      state.installGeneration++;state.installJob=result.job||{id:'starting',status:'running',progress:0,message:'Your installation request was accepted.'};
+      state.installPlan=null;state.installPending=false;closeInstallDialog();state.catalogSelection.clear();
+      message('Installation task started. Follow its progress in the catalog.','success');renderManagementControls();renderCatalog();
+      await pollManagementJobs();schedulePoll();
+      if(state.installJob?.status!=='running')await refreshResources(true);
+    }catch(error){state.installPending=false;$('#install-error').textContent=privateSafeText(error.message);$('#install-error').hidden=false;if(/expired|changed|review/i.test(error.message))state.installPlan=null;renderManagementControls();}
+  }
+  function renderManagementControls() {
+    if(!$('#catalog-install-selected'))return;
+    $('#catalog-install-selected').disabled=!writable()||busy()||!state.catalogSelection.size;
+    for(const button of $$('[data-catalog-action]'))button.disabled=!writable()||busy();
+    const dialogOpen=$('#install-dialog').open;
+    if(dialogOpen){
+      $('#install-targets').disabled=state.installPending;
+      for(const field of $$('#install-options input,#install-options textarea'))field.disabled=state.installPending;
+      $('#install-plan').disabled=!writable()||state.installPending;
+      $('#install-plan').textContent=state.installPending?'Preparing...':'Review plan';
+      $('#install-execute').disabled=!writable()||state.installPending||state.installPlan?.canExecute!==true;
+      $('#install-dialog-close').disabled=state.installPending;$('#install-cancel').disabled=state.installPending;
+    }
+    const job=state.installJob;$('#install-job-panel').hidden=!job;
+    if(job){
+      $('#install-job-title').textContent=job.status==='error'?'Installation needs attention':job.status==='done'?'Installation task completed':'Applying selected changes';
+      $('#install-job-message').textContent=job.error||job.message||'The local manager is working.';
+      const progress=Number(job.progress);$('#install-job-progress').value=Number.isFinite(progress)?Math.min(100,Math.max(0,progress)):0;
+      $('#install-job-progress').hidden=job.status!=='running';$('#install-job-percent').textContent=job.status==='running'&&Number.isFinite(progress)?Math.round(progress)+'%':'';
+      $('#install-job-panel').className='job-panel '+(job.status==='error'?'error':job.status==='done'?'done':'');
+    }
+  }
+  function renderInstallHistory() {
+    const list=$('#install-history-list');if(!list)return;list.replaceChildren();
+    for(const item of state.installHistory.slice(0,30)){
+      const text=item.message||[item.operation,item.status||item.state].filter(Boolean).join(' / ');
+      const detail=[...listValues(item.items).map(x=>typeof x==='string'?x:x.name||x.id),...agentList(item.targets).map(x=>APP_NAMES[x])].filter(Boolean).join(' / ');
+      list.append(node('li',{class:'activity-entry '+(item.status==='error'||String(item.state).startsWith('rollback')?'error':'')},[node('time',{text:dateLabel(item.at||item.completedAt||item.finishedAt||item.startedAt,true)}),node('div',{},[node('p',{text}),node('small',{class:'history-agents',text:detail})])]));
+    }
+    $('#install-history-empty').hidden=state.installHistory.length>0;
+  }
+  async function pollManagementJobs() {
+    if(state.installPolling||!state.connected)return;state.installPolling=true;
+    const installGeneration=state.installGeneration,dockerGeneration=state.dockerGeneration;
+    try{
+      const results=await Promise.allSettled([api('/api/install/status'),api('/api/docker/status')]);
+      if(results[0].status==='fulfilled'&&installGeneration===state.installGeneration){
+        const previous=state.installJob,next=results[0].value.job||null;
+        if(Object.prototype.hasOwnProperty.call(results[0].value,'job'))state.installJob=next;
+        if(previous?.status==='running'&&next?.status!=='running')refreshResources(true);
+      }
+      if(results[1].status==='fulfilled'&&dockerGeneration===state.dockerGeneration){
+        const previous=state.dockerJob,next=results[1].value.job||null;
+        if(Object.prototype.hasOwnProperty.call(results[1].value,'job'))state.dockerJob=next;
+        if(previous?.status==='running'&&next?.status!=='running')checkDocker(false);
+      }
+    }finally{state.installPolling=false;renderManagementControls();renderDocker();}
+  }
+  function renderRuntime() {
+    const data=state.runtime,facts=$('#runtime-facts');if(!facts)return;facts.replaceChildren();
+    if(data){
+      const platform=typeof data.platform==='string'?data.platform:data.platform?.name||'Native';
+      for(const [label,value] of [['Platform',platform+(data.architecture?' / '+data.architecture:'')],['Environment',data.environment||'native'],['Node',data.node?.available?data.node.version||'Available':'Not detected'],['Python',data.python?.available?data.python.version||'Available':'Not detected']])facts.append(node('span',{class:'runtime-fact'},[node('strong',{text:label+': '}),value]));
+      $('#runtime-summary').textContent=data.stateDir?'Settings, backups, and managed runtimes: '+data.stateDir:'Your manager stores writable data separately from installed application files.';
+      const startup=data.startup||{},enabled=startup.enabled;
+      $('#startup-enabled').checked=enabled===true;
+      $('#startup-enabled').disabled=!writable()||state.startupSaving||startup.supported===false||data.environment==='container';
+      $('#startup-description').textContent=data.environment==='container'?'Container startup is controlled through Docker.':startup.supported===false?'Automatic startup is not supported in this environment.':'Start the local manager in the background when you sign in. You can open the dashboard from its installed shortcut.';
+    }else{$('#runtime-summary').textContent='Connect to inspect the platform, runtimes, and startup integration.';$('#startup-enabled').disabled=true;}
+    const theme=window.AgentTheme?.getPreference?.()||'system';$('#appearance-theme').value=theme;
+  }
+  async function refreshRuntime() {
+    if(!state.connected)return;
+    try{state.runtime=await api('/api/runtime');}catch{}
+    renderRuntime();await checkDocker(false);
+  }
+  async function saveStartup() {
+    if(!writable()||state.startupSaving)return;const enabled=$('#startup-enabled').checked;state.startupSaving=true;renderRuntime();
+    try{
+      const result=await api('/api/runtime/startup',{method:'POST',body:JSON.stringify({enabled})});
+      if(result.runtime)state.runtime=result.runtime;else if(state.runtime)state.runtime.startup=result.startup||result;
+      message('Startup preference saved.','success');await refreshRuntime();
+    }catch(error){message(error.message,'error');}
+    finally{state.startupSaving=false;renderRuntime();}
+  }
+  function renderDocker() {
+    const data=state.docker,job=state.dockerJob,runningJob=job?.status==='running',ready=writable()&&!state.dockerPending&&!runningJob;
+    const available=data?.available===true,compose=data?.composeAvailable===true,running=data?.running===true,engineReady=available&&data?.engineRunning!==false;
+    const configured=running||state.dockerGenerated||data?.configured===true||data?.configExists===true||data?.generated===true;
+    const badge=$('#docker-badge');if(!badge)return;
+    badge.textContent=!data?'Not checked':running?'Sandbox running':available&&compose?'Docker ready':available?'Compose unavailable':'Docker not installed';
+    badge.className='install-state '+(running?'installed':data&&!available?'missing':'');
+    $('#docker-description').textContent=!data?'Check Docker to inspect the local engine and Compose.':!available?'Install Docker first, then choose Check Docker. The native manager works without it.':!engineReady?'Docker is installed, but its engine is not running. Start Docker Desktop or Docker Engine, then check again.':!compose?'Docker is available, but Compose is missing or unavailable. Install or enable Compose, then check again.':running?'The separate container workspace is running. Host agent configurations are not used by this sandbox.':'Generate the sandbox configuration, then start it when you need a container development environment.';
+    $('#docker-check').disabled=!writable()||state.dockerPending||runningJob;
+    $('#docker-check').textContent=state.dockerPending?'Working...':'Check Docker';
+    $('#docker-generate').disabled=!ready;
+    $('#docker-start').disabled=!ready||!engineReady||!compose||running;
+    $('#docker-stop').disabled=!ready||!available||!compose||!running;
+    $('#docker-logs-button').disabled=!ready||!engineReady||!compose||!configured;
+    const installUrl=safeUrl(data?.installUrl||'https://docs.docker.com/get-started/get-docker/');
+    $('#docker-install-link').hidden=!data||available;$('#docker-install-link').href=installUrl||'https://docs.docker.com/get-started/get-docker/';
+    const url=safeUrl(data?.url);$('#docker-open').hidden=!running||!url;if(url)$('#docker-open').href=url;
+    $('#docker-job-panel').hidden=!job;
+    if(job){$('#docker-job-title').textContent=job.status==='error'?'Sandbox task needs attention':job.status==='done'?'Sandbox task completed':'Preparing the Docker sandbox';$('#docker-job-message').textContent=job.error||job.message||'The local manager is working.';$('#docker-job-panel').className='job-panel '+(job.status==='error'?'error':job.status==='done'?'done':'');}
+  }
+  async function checkDocker(showMessage=true) {
+    if(!writable()||state.dockerPending)return;
+    state.dockerPending=true;renderDocker();
+    try{state.docker=await api('/api/docker');$('#docker-error').hidden=true;if(showMessage)message(state.docker.available&&state.docker.composeAvailable?'Docker and Compose are available.':'Docker check completed. Follow the setup details in Runtimes & Docker.','success');}
+    catch(error){$('#docker-error').textContent=error.message;$('#docker-error').hidden=true;if(showMessage){$('#docker-error').hidden=false;}}
+    finally{state.dockerPending=false;renderDocker();}
+  }
+  async function dockerOperation(operation) {
+    if(!writable()||state.dockerPending||state.dockerJob?.status==='running')return;
+    state.dockerPending=true;$('#docker-error').hidden=true;renderDocker();
+    try{
+      const result=await api('/api/docker/'+operation,{method:'POST',body:JSON.stringify(operation==='generate'?{mode:'sandbox'}:{})});
+      if(operation==='generate'){
+        state.dockerGenerated=true;
+        $('#docker-output').hidden=false;$('#docker-output').open=true;$('#docker-output-title').textContent='Generated sandbox configuration';
+        $('#docker-output-text').textContent=(result.path?'Saved to '+result.path+'\n\n':'')+(result.content||'Configuration generated. Start sandbox when Docker and Compose are ready.');
+        message('Sandbox configuration generated.','success');
+      }else{
+        state.dockerGeneration++;state.dockerJob=result.job||{status:'running',message:'The sandbox request was accepted.'};
+        message('Sandbox '+operation+' requested.','success');schedulePoll();
+        if(state.dockerJob.status!=='running'){state.dockerPending=false;await checkDocker(false);}
+      }
+    }catch(error){$('#docker-error').textContent=error.message;$('#docker-error').hidden=false;}
+    finally{state.dockerPending=false;renderDocker();}
+  }
+  async function showDockerLogs() {
+    if(!writable()||state.dockerPending)return;state.dockerPending=true;renderDocker();
+    try{const result=await api('/api/docker/logs');$('#docker-output').hidden=false;$('#docker-output').open=true;$('#docker-output-title').textContent='Sandbox logs';$('#docker-output-text').textContent=String(result.logs||result.text||'No logs are available yet.').slice(-60000);$('#docker-error').hidden=true;}
+    catch(error){$('#docker-error').textContent=error.message;$('#docker-error').hidden=false;}
+    finally{state.dockerPending=false;renderDocker();}
+  }
   function initialize() {
     let fallback={};try{fallback=JSON.parse($('#saved-inventory').textContent);}catch{}
     const saved=readOffline();state.savedAt=saved.savedAt||null;state.suggestions=Array.isArray(saved.suggestions)?saved.suggestions:[];
     state.availabilityByApp=saved.availabilityByApp&&typeof saved.availabilityByApp==='object'?saved.availabilityByApp:{};
+    state.catalogByApp=saved.catalogByApp&&typeof saved.catalogByApp==='object'?saved.catalogByApp:{};
+    if(Array.isArray(window.INVENTORY_CATALOG?.items))state.catalogByApp.all=window.INVENTORY_CATALOG;
+    else if(Array.isArray(window.DEFAULT_CATALOG?.items))state.catalogByApp.all=window.DEFAULT_CATALOG;
     if(window.INVENTORY_AVAILABILITY?.selectedApp)state.availabilityByApp[window.INVENTORY_AVAILABILITY.selectedApp]=window.INVENTORY_AVAILABILITY;
     state.inventory=normalizeInventory(window.INVENTORY_SNAPSHOT||window.INVENTORY_FALLBACK||saved.inventory||fallback);
     let agent='all';try{const pref=localStorage.getItem('mcp-skills:agent');if(['all','claude','codex','gemini'].includes(pref))agent=pref;}catch{}
-    $('#app-filter').value=agent;state.availability=state.availabilityByApp[agent]||null;
+    $('#app-filter').value=agent;state.availability=state.availabilityByApp[agent]||null;state.catalog=state.catalogByApp[agent]||state.catalogByApp.all||null;
     render();
     $('#search').addEventListener('input',()=>{state.availabilityLimit=60;filterInventory();});
     $('#app-filter').addEventListener('change',()=>selectAgent($('#app-filter').value));
@@ -394,6 +713,28 @@
     $('#availability-kind').addEventListener('change',()=>{state.availabilityLimit=60;renderAvailability();});
     for(const button of $$('[data-availability-state]'))button.addEventListener('click',()=>{state.availabilityState=button.dataset.availabilityState;state.availabilityLimit=60;renderAvailability();});
     $('#availability-more').addEventListener('click',()=>{state.availabilityLimit+=60;renderAvailability();});
+    for(const id of ['catalog-kind','catalog-filter'])$('#'+id).addEventListener('change',()=>{state.catalogLimit=60;renderCatalog();});
+    $('#catalog-more').addEventListener('click',()=>{state.catalogLimit+=60;renderCatalog();});
+    $('#catalog-clear').addEventListener('click',()=>{state.catalogSelection.clear();renderCatalog();});
+    $('#catalog-select-visible').addEventListener('click',()=>{for(const item of filteredCatalog().slice(0,state.catalogLimit))if(item.installable!==false)state.catalogSelection.add(item.id);renderCatalog();});
+    $('#catalog-install-selected').addEventListener('click',()=>openInstallDialog([...state.catalogSelection],'install'));
+    document.addEventListener('change',event=>{const field=event.target.closest('[data-catalog-select]');if(field){if(field.checked)state.catalogSelection.add(field.dataset.catalogSelect);else state.catalogSelection.delete(field.dataset.catalogSelect);renderCatalog();}});
+    document.addEventListener('click',event=>{const button=event.target.closest('[data-catalog-action]');if(button&&!button.disabled)openInstallDialog([button.dataset.itemId],button.dataset.catalogAction);});
+    $('#install-targets').addEventListener('change',invalidateInstallPlan);
+    $('#install-options').addEventListener('input',invalidateInstallPlan);
+    $('#install-plan').addEventListener('click',requestInstallPlan);
+    $('#install-execute').addEventListener('click',executeInstallPlan);
+    $('#install-dialog-close').addEventListener('click',closeInstallDialog);
+    $('#install-cancel').addEventListener('click',closeInstallDialog);
+    $('#install-dialog').addEventListener('cancel',event=>{event.preventDefault();closeInstallDialog();});
+    $('#install-dialog').addEventListener('close',()=>{for(const field of $$('#install-options input,#install-options textarea'))field.value='';state.installPlan=null;});
+    for(const link of $$('[data-catalog-nav]'))link.addEventListener('click',()=>{$('#catalog-kind').value=link.dataset.catalogNav;state.catalogLimit=60;renderCatalog();});
+    $('#appearance-theme').addEventListener('change',event=>{window.AgentTheme?.setPreference?.(event.target.value);renderRuntime();});
+    $('#theme-select').addEventListener('change',()=>setTimeout(renderRuntime,0));
+    $('#startup-enabled').addEventListener('change',saveStartup);
+    $('#docker-check').addEventListener('click',()=>checkDocker());
+    for(const operation of ['generate','start','stop'])$('#docker-'+operation).addEventListener('click',()=>dockerOperation(operation));
+    $('#docker-logs-button').addEventListener('click',showDockerLogs);
     document.addEventListener('click',event=>{if(event.target.closest('[data-open-missing]')){state.availabilityState='missing';state.availabilityLimit=60;renderAvailability();}});
     $('#refresh-inventory').addEventListener('click',async()=>{const refreshed=await refreshResources(true);message(refreshed?'Inventory refreshed. Global installations and missing items were rescanned.':'Some installation checks could not be refreshed. Check the local manager and try again.',refreshed?'success':'error');});
     $('#expand-all').addEventListener('click',()=>{$$('details.skill-group').filter(group=>!group.hidden).forEach(group=>group.open=true);});
@@ -409,6 +750,7 @@
     $('#sidebar-scrim').addEventListener('click',()=>setNavigation(false));
     for(const link of $$('#sidebar a'))link.addEventListener('click',()=>{if($('#sidebar').classList.contains('open'))setNavigation(false);});
     document.addEventListener('keydown',event=>{
+      if($('#install-dialog').open)return;
       if(event.key==='Escape'&&$('#sidebar').classList.contains('open'))setNavigation(false);
       if(event.key==='Tab'&&$('#sidebar').classList.contains('open')){
         const focusable=[...$('#sidebar').querySelectorAll('a[href],button:not(:disabled)')].filter(el=>!el.hidden&&getComputedStyle(el).visibility!=='hidden');

@@ -150,6 +150,18 @@ class AvailabilityTests(unittest.TestCase):
         self.assertEqual(2, all_result['summary']['installedCount'])
         self.assertEqual(0, all_result['summary']['missingCount'])
 
+    def test_install_operation_does_not_record_transient_removal(self):
+        self.manager.skills.rows = [{'name':'portable', 'sourceId':'skill:ecc', 'apps':['Gemini']}]
+        self.tracker.scan(self.manager)
+        before = self.tracker.path.read_bytes()
+        self.manager.skills.rows = []
+        self.manager.operations = mock.Mock()
+        self.manager.operations.running.return_value = True
+        result = self.tracker.scan(self.manager, 'gemini')
+        self.assertEqual('installed', self.item(result, 'skill:portable')['state'])
+        self.assertFalse(result['scanComplete'])
+        self.assertEqual(before, self.tracker.path.read_bytes())
+
     def test_shared_skill_is_compared_across_compatible_agents(self):
         skill = self.home / '.agents/skills/custom/SKILL.md'
         skill.parent.mkdir(parents=True)

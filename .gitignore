@@ -6,6 +6,9 @@
 
 # Local Python and editor artifacts.
 __pycache__/
+build/
+dist/
+*.spec
 *.py[cod]
 .venv/
 venv/

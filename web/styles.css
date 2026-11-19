@@ -23,3 +23,83 @@
 .topbar-breadcrumb .breadcrumb-root{color:var(--muted);padding:0}.topbar-breadcrumb .breadcrumb-divider{padding:0 9px}
 
 .agent-button.active small{color:var(--muted)}
+
+/* Catalog and scoped installation controls. */
+.nav-group-label{display:block;padding:18px 12px 5px;color:var(--subtle);font-size:11px;font-weight:600;letter-spacing:.01em}
+.sidebar nav .nav-group-label:first-child{padding-top:0}
+.sidebar nav a.active{color:var(--accent)}
+.sidebar nav a .icon,.sidebar nav a.active .icon,.quiet-link .icon,.quiet-button .icon{color:inherit;stroke:currentColor}
+.catalog-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:18px 0 10px}
+.catalog-toolbar select{font-size:12px;max-width:230px}
+.catalog-toolbar .selection-count{margin-left:auto;color:var(--muted);font-size:12px}
+.catalog-list{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:16px;background:var(--surface)}
+.catalog-list:empty{display:none}
+.catalog-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:14px;align-items:start;padding:17px 19px;border-bottom:1px solid var(--line)}
+.catalog-row:last-child{border-bottom:0}
+.catalog-row input[type=checkbox]{min-height:20px;width:18px;height:18px;margin:4px 0}
+.catalog-row .catalog-description{color:var(--muted);font-size:12px;line-height:1.6;margin-top:4px;max-width:85ch;overflow-wrap:anywhere}
+.catalog-name{display:flex;align-items:baseline;flex-wrap:wrap;gap:9px}
+.catalog-name strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.catalog-name .kind-label,.catalog-name .version-value{font-size:11px;color:var(--subtle)}
+.catalog-presence{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:9px}
+.agent-state{font-size:11px;padding:3px 7px;border:1px solid var(--line);border-radius:5px;color:var(--muted);background:var(--surface-2);white-space:nowrap}
+.agent-state.managed{color:var(--success);background:var(--success-soft);border-color:transparent}
+.agent-state.shared{color:var(--warning);background:var(--warning-soft);border-color:transparent}
+.catalog-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:6px;max-width:255px;padding-top:1px}
+.catalog-actions .quiet-button{font-size:12px}
+.catalog-reason{font-size:11px;color:var(--subtle);margin-top:7px;overflow-wrap:anywhere}
+.catalog-actions .button,.catalog-actions .quiet-button{min-height:36px}
+.danger-action{color:var(--danger)!important}
+.install-dialog{padding:0;border:1px solid var(--line-strong);border-radius:13px;color:var(--ink);background:var(--surface);width:min(760px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:hidden}
+.install-dialog::backdrop{background:rgba(0,0,0,.6)}
+.install-dialog[open]{display:flex;flex-direction:column}
+.dialog-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:25px 26px 20px;border-bottom:1px solid var(--line)}
+.dialog-heading h2{font-size:21px}
+.dialog-heading p{font-size:13px;color:var(--muted);margin-top:8px;max-width:65ch}
+.dialog-heading .icon-button{margin:-5px -7px 0 0;flex-shrink:0}
+.dialog-content{padding:22px 26px;overflow:auto;overscroll-behavior:contain}
+.selected-tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:21px}
+.selected-tool{font-size:12px;background:var(--surface-2);border:1px solid var(--line);padding:5px 9px;border-radius:6px;overflow-wrap:anywhere;max-width:100%}
+.install-targets{border:0;padding:0;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:10px}
+.install-targets legend{font-size:13px;font-weight:600;margin-bottom:11px;padding:0}
+.install-targets label{display:flex;align-items:center;gap:9px;padding:10px 14px;border:1px solid var(--line);border-radius:7px;min-height:44px;font-size:13px}
+.install-targets label:has(input:checked){background:var(--accent-soft);border-color:var(--accent)}
+.install-targets label:has(input:disabled){opacity:.55}
+.install-targets input{min-height:18px;width:16px;height:16px;margin:0}
+.shared-install-notice{margin-top:18px;padding:14px 16px;border:1px solid var(--line-strong);background:var(--warning-soft);border-radius:8px;font-size:12px}
+.shared-install-notice strong{color:var(--warning)}
+.shared-install-notice p{margin-top:5px;color:var(--muted);line-height:1.65}
+.install-options{display:grid;gap:15px}
+.install-option{display:grid;gap:7px;margin-top:18px}
+.install-option>span{font-size:13px;font-weight:600}
+.install-option small{font-size:12px;color:var(--muted);line-height:1.6}
+.install-option input,.install-option textarea{width:100%;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface-2);color:var(--ink);padding:10px 12px;min-height:44px;font:13px ui-monospace,SFMono-Regular,Consolas,monospace}
+.install-option textarea{resize:vertical;min-height:100px}
+.install-review{margin-top:22px;border-top:1px solid var(--line);padding-top:21px}
+.install-review>p{font-size:13px;color:var(--muted);margin-top:9px}
+.plan-group{margin-top:17px}
+.plan-group h4{margin:0 0 8px;font-size:12px;font-weight:600}
+.plan-group ul{list-style:none;padding:0;margin:0;display:grid;gap:7px}
+.plan-group li{font-size:12px;color:var(--muted);padding:10px 12px;background:var(--surface-2);border-radius:6px;overflow-wrap:anywhere}
+.plan-group.conflicts li{color:var(--danger);background:var(--danger-soft)}
+.dialog-footer{border-top:1px solid var(--line);padding:17px 26px;display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--surface)}
+.dialog-footer>span{font-size:11px;color:var(--subtle);max-width:29ch}
+.dialog-footer>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.dialog-footer button{min-height:44px}
+.preference-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 0;border-bottom:1px solid var(--line)}
+.preference-row h3{font-size:13px}
+.preference-row p{font-size:12px;color:var(--muted);margin-top:5px;max-width:70ch}
+.runtime-facts{display:flex;flex-wrap:wrap;gap:8px;margin:19px 0}
+.runtime-fact{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:var(--surface)}
+.runtime-fact strong{color:var(--ink);font-weight:550}
+.docker-intro{display:flex;gap:14px;align-items:flex-start;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:15px}
+.docker-intro>.icon{width:24px;height:24px;color:var(--accent)}
+.docker-intro h3{font-size:13px}
+.docker-intro p{font-size:12px;color:var(--muted);margin-top:5px;max-width:80ch}
+.docker-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:17px}
+.command-output{padding:17px 19px;max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-2);color:var(--ink);font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;margin:0;border-top:1px solid var(--line)}
+.history-agents{color:var(--subtle);font-size:11px;display:block;margin-top:4px}
+@media(max-width:900px){.catalog-row{grid-template-columns:24px minmax(0,1fr)}.catalog-actions{grid-column:2;justify-content:flex-start;max-width:none;padding:0}.catalog-toolbar .selection-count{margin-left:0}.catalog-toolbar #catalog-install-selected{margin-left:auto}}
+@media(max-width:700px){.sidebar nav{gap:1px}.nav-group-label{padding-top:15px}.sidebar-bottom{padding-top:25px}.catalog-row{padding:15px 13px;gap:10px}.catalog-toolbar>*{min-height:44px}.catalog-toolbar select{max-width:100%}.catalog-toolbar .selection-count{width:100%}.catalog-toolbar #catalog-install-selected{margin-left:0}.catalog-actions .button,.catalog-actions .quiet-button{min-height:44px}.catalog-row input[type=checkbox]{margin-top:7px}.catalog-name{gap:6px}.catalog-actions{gap:4px}.install-dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:10px}.dialog-heading{padding:20px 18px 16px}.dialog-content{padding:18px}.dialog-footer{padding:15px 18px;display:block}.dialog-footer>span{display:block;max-width:none;margin-bottom:13px}.dialog-footer>div{justify-content:flex-end;gap:7px}.dialog-footer .button{padding:9px 11px;font-size:12px}.install-targets{gap:7px}.install-targets label{padding:10px 11px}.preference-row{align-items:flex-start;gap:16px}.preference-row .checkbox-label{flex-shrink:0}.docker-actions>.button{font-size:12px;padding:9px 12px}.catalog-name strong{font-size:13px}}
+@media(max-width:380px){.catalog-toolbar label{flex:1 1 100%}.catalog-toolbar select{width:100%}.catalog-toolbar #catalog-install-selected{width:100%}.preference-row{flex-direction:column;gap:12px}.dialog-footer #install-plan,.dialog-footer #install-execute{flex:1}.dialog-footer>div{flex-wrap:wrap}.dialog-footer #install-cancel{flex:0 0 auto}}
+@media print{.catalog-toolbar,.catalog-actions,.catalog-row input,.docker-actions,.install-dialog,#preferences,#docker{display:none!important}.catalog-row{grid-template-columns:1fr}.catalog-list{border:0}.catalog-row{break-inside:avoid}.catalog-actions{display:none!important}}

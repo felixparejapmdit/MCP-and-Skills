@@ -1,0 +1,86 @@
+name: Test and package
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            name: windows-x64
+          - os: macos-15-intel
+            name: macos-x64
+          - os: macos-15
+            name: macos-arm64
+          - os: ubuntu-22.04
+            name: linux-x64
+          - os: ubuntu-22.04-arm
+            name: linux-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest -q
+      - run: python -m pip install -r requirements-build.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfuse2 zsync
+      - run: python packaging/build.py
+      - if: runner.os == 'Windows'
+        run: python packaging/smoke.py --binary dist/mcp-skills/mcp-skills.exe
+      - if: runner.os == 'macOS'
+        run: python packaging/smoke.py --binary dist/mcp-skills.app/Contents/MacOS/mcp-skills
+      - if: runner.os == 'Linux'
+        run: python packaging/smoke.py --binary dist/mcp-skills/mcp-skills
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/installers/*
+          if-no-files-found: error
+
+  docker:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: docker compose config --quiet
+      - run: docker compose up --build -d --wait
+      - run: python packaging/smoke.py --url http://127.0.0.1:8877
+      - if: always()
+        run: docker compose logs --tail 80
+      - if: always()
+        run: docker compose down --volumes
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [native, docker]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish verified installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --title "MCP and Skills $RELEASE_TAG" --notes "Native installers and checksums. Windows and macOS builds are unsigned; macOS builds are not notarized. See README for setup, agent selection, and optional Docker sandbox instructions."
+          gh release upload "$RELEASE_TAG" artifacts/* --clobber

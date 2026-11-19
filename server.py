@@ -8,6 +8,7 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
 import secrets
@@ -40,7 +41,7 @@ def offline_document(web):
     text = (Path(web) / 'index.html').read_text(encoding='utf-8').replace('<!-- INVENTORY_BOOTSTRAP -->', '')
     # Defense in depth if a generated page is ever copied over the template.
     text = re.sub(r'<script\b[^>]*>.*?</script\s*>',
-                  lambda match: '' if re.search(r'window\.INVENTORY_(?:TOKEN|SNAPSHOT|FALLBACK)', match[0]) else match[0],
+                  lambda match: '' if re.search(r'window\.INVENTORY_(?:TOKEN|SNAPSHOT|FALLBACK|AVAILABILITY|CATALOG)', match[0]) else match[0],
                   text, flags=re.I | re.S)
     return re.sub(r'(<script\b[^>]*\bid=[\"\']saved-inventory[\"\'][^>]*>).*?(</script\s*>)',
                   lambda match: match[1] + '{"mcp":[],"skillGroups":[],"stats":{},"applications":[],"plugins":[]}' + match[2],
@@ -63,8 +64,9 @@ class InventoryHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, manager):
+    def __init__(self, address, manager, public_origin=None):
         self.manager = manager
+        self.public_origin = public_origin
         super().__init__(address, InventoryHandler)
 
 
@@ -81,12 +83,15 @@ class InventoryHandler(BaseHTTPRequestHandler):
 
     def expected_origins(self):
         port = self.server.server_address[1]
-        return {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
+        origins = {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}
+        if self.server.public_origin:
+            origins.add(self.server.public_origin)
+        return origins
 
     def secure_request(self, mutation=False):
         host = self.headers.get('Host', '').lower()
         port = self.server.server_address[1]
-        if host not in {f'127.0.0.1:{port}', f'localhost:{port}'}:
+        if host not in {urlsplit(origin).netloc for origin in self.expected_origins()}:
             self.json_response({'error': 'Unrecognized local host'}, 403)
             return False
         origin = self.headers.get('Origin')
@@ -135,6 +140,25 @@ class InventoryHandler(BaseHTTPRequestHandler):
                 return self.json_response({'application': 'AgentInventoryManager', 'version': VERSION, 'running': True})
             if path == '/api/inventory':
                 return self.json_response(self.manager.inventory())
+            if path == '/api/catalog':
+                query = parse_qs(parsed_url.query, keep_blank_values=True)
+                apps = query.get('app', ['all'])
+                if set(query) - {'app'} or len(apps) != 1 or apps[0] not in {'all', 'claude', 'codex', 'gemini'}:
+                    return self.json_response({'error': 'Choose all, claude, codex, or gemini'}, 400)
+                return self.json_response(self.manager.catalog(apps[0]))
+            if path == '/api/install/status':
+                return self.json_response(self.manager.operations.status('install'))
+            if path == '/api/install/history':
+                return self.json_response(self.manager.install_history())
+            if path == '/api/docker':
+                return self.json_response(self.manager.docker().check())
+            if path == '/api/docker/status':
+                return self.json_response(self.manager.operations.status('docker'))
+            if path == '/api/docker/logs':
+                return self.json_response(self.manager.docker().logs())
+            if path == '/api/runtime':
+                from management_jobs import runtime_summary
+                return self.json_response(runtime_summary(self.manager))
             if path == '/api/session':
                 # This token is held only in live page memory. It lets a generic
                 # offline shell reconnect after the helper has restarted.
@@ -176,12 +200,14 @@ class InventoryHandler(BaseHTTPRequestHandler):
                       '/snapshot.json': ('snapshot.json', 'application/json; charset=utf-8')}
             if path in assets:
                 relative, content_type = assets[path]
-                source = web / relative
+                source = (self.manager.export_dir / relative) if path in {'/snapshot.js', '/snapshot.json'} else web / relative
                 if source.is_file():
                     return self.send_bytes(source.read_bytes(), content_type)
             return self.json_response({'error': 'Not found'}, 404)
         except (BrokenPipeError, ConnectionResetError):
             return
+        except ValueError:
+            return self.json_response({'error': 'Invalid or unknown request parameters'}, 400)
         except Exception:
             return self.json_response({'error': 'The inventory could not be read. Check local activity or restart the helper.'}, 500)
 
@@ -203,6 +229,36 @@ class InventoryHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError('A JSON object is required')
             path = urlsplit(self.path).path
+            if path == '/api/install/plan':
+                return self.json_response(self.manager.install_plan(payload))
+            if path == '/api/install/execute':
+                if set(payload) != {'planId'}:
+                    raise ValueError('Choose a validated installation plan')
+                return self.json_response({'job': self.manager.execute_install(payload['planId'])}, 202)
+            if path == '/api/docker/generate':
+                if set(payload) - {'mode'} or payload.get('mode', 'sandbox') != 'sandbox':
+                    raise ValueError('Only the isolated developer sandbox is supported')
+                return self.json_response(self.manager.docker().generate())
+            if path in {'/api/docker/start', '/api/docker/stop'}:
+                if payload:
+                    raise ValueError('Docker actions do not accept custom commands')
+                return self.json_response({'job': self.manager.docker_action(path.rsplit('/', 1)[-1])}, 202)
+            if path == '/api/runtime/startup':
+                if set(payload) != {'enabled'} or type(payload['enabled']) is not bool:
+                    raise ValueError('Choose whether to start at sign-in')
+                if self.manager.home.resolve() != Path.home().resolve():
+                    raise ValueError('Autostart is only available for the current native user')
+                from launcher import install_startup, uninstall_startup
+                result = install_startup(self.manager.state_dir, self.server.server_address[1]) if payload['enabled'] else uninstall_startup()
+                return self.json_response(result or {'enabled': payload['enabled']})
+            if path == '/api/helper/stop':
+                if payload:
+                    raise ValueError('Stop does not accept options')
+                if ((self.manager.job and self.manager.job.get('status') == 'running') or self.manager.operations.running()):
+                    return self.json_response({'error': 'Wait for the active operation before stopping the helper'}, 409)
+                self.json_response({'stopping': True}, 202)
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return
             if path == '/api/check-updates':
                 if payload:
                     raise ValueError('This endpoint does not accept options')
@@ -222,8 +278,17 @@ class InventoryHandler(BaseHTTPRequestHandler):
             return self.json_response({'error': 'The request could not be completed'}, 500)
 
 
-def create_server(manager, port=8766):
-    return InventoryHTTPServer(('127.0.0.1', port), manager)
+def create_server(manager, port=8766, bind='127.0.0.1', public_origin=None):
+    if bind not in {'127.0.0.1', 'localhost', '0.0.0.0'}:
+        raise ValueError('Choose a supported bind address')
+    if bind == '0.0.0.0' and os.environ.get('MCP_SKILLS_CONTAINER') != '1':
+        raise ValueError('Public binding is only available in the explicit container sandbox')
+    if public_origin is not None:
+        parts = urlsplit(public_origin)
+        if (parts.scheme != 'http' or parts.hostname not in {'127.0.0.1', 'localhost'} or
+            not parts.port or parts.username or parts.password or parts.path or parts.query or parts.fragment):
+            raise ValueError('The public origin must be an exact loopback HTTP origin')
+    return InventoryHTTPServer((bind, port), manager, public_origin)
 
 
 def main(argv=None):
@@ -233,15 +298,18 @@ def main(argv=None):
     parser.add_argument('--no-scheduler', action='store_true', help='For controlled local verification')
     parser.add_argument('--port', type=int, default=8766)
     parser.add_argument('--state-dir', type=Path, default=DEFAULT_STATE)
+    parser.add_argument('--home', type=Path, default=HOME, help='Agent profile home (isolated in Docker)')
+    parser.add_argument('--bind', default='127.0.0.1')
+    parser.add_argument('--public-origin', help='Explicit loopback published origin for a Docker NAT port')
     args = parser.parse_args(argv)
-    manager = Manager(state_dir=args.state_dir)
+    manager = Manager(home=args.home, state_dir=args.state_dir)
     if args.once:
         manager.start_job('check')
         while manager.job and manager.job['status'] == 'running':
             time.sleep(.25)
         print(json.dumps(manager.status(), indent=2))
         return 0 if manager.job['status'] == 'done' else 1
-    server = create_server(manager, args.port)
+    server = create_server(manager, args.port, args.bind, args.public_origin)
     manager.export_snapshot()
     stop = threading.Event()
     atexit.register(stop.set)

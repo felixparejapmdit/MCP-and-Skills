@@ -1,135 +1,143 @@
-# MCP and Agent Skills — local dashboard
+# MCP and Skills
 
-View your global Claude Code, Codex, and Gemini CLI tools, check their publishers for updates, and keep supported installations current. The dashboard runs only on this computer at **http://127.0.0.1:8766/**.
+A local dashboard to detect, selectively install, and update global MCP servers and agent skills for **Claude Code, Codex, and Gemini CLI**. Version 2 adds a portable default catalog, native installers, a responsive light/dark PWA, and an optional Docker sandbox.
 
-## Open the project
+## Install and open
 
-Clone the repository. These PowerShell examples use a folder on your Desktop:
+Download a package from [Releases](https://github.com/felixparejapmdit/MCP-and-Skills/releases). Packaged applications include Python. You do not need Python, Docker, or a cloned repository to open them.
 
-```powershell
-git clone https://github.com/felixparejapmdit/MCP-and-Skills.git "$env:USERPROFILE\Desktop\MCP and Agent Skills"
+| Platform | Package | Open |
+| --- | --- | --- |
+| Windows x64 | `windows-x64-unsigned-setup.exe` | Install for your account; open **MCP and Skills** from Start. Desktop shortcut is optional. |
+| Windows portable | `windows-x64-unsigned-portable.zip` | Extract everything and open `mcp-skills.exe`. Keep `_internal` alongside it. |
+| macOS Intel / Apple Silicon | Matching `macos-x64` / `macos-arm64` `.dmg` | Drag the app into Applications and open it. |
+| Linux x64 / ARM64 | Matching `.AppImage` or `.deb` | Make the AppImage executable and open it, or install the DEB and use the Applications menu. |
+
+Windows and macOS builds are **unsigned**. macOS builds are also **not notarized**. Your OS may require explicit approval to open downloaded software; managed devices may block it. Verify the release SHA256SUMS and follow your organization's policy. AppImages may require FUSE; extraction with `--appimage-extract` is another option. DEBs target glibc-based Debian/Ubuntu. macOS builds target macOS 15 or newer.
+
+**Release status:** Windows setup and portable packages are built and tested. macOS/Linux build recipes and Docker support are implemented, but their native/integration checks are pending activation of GitHub Actions. The current publishing login lacks GitHub's `workflow` scope; the complete workflow is provided at `packaging/release-workflow.yml`. Download only artifacts actually attached to a release.
+
+The app opens **http://127.0.0.1:8766/**. Closing the browser leaves the local helper running. Enable **Preferences → Run at sign-in** for checks after login. The installed launcher works outside the project folder. Installing this dashboard does not install every catalog item or the agent CLIs.
+
+## Choose tools and agents
+
+1. Open **MCP servers** or **Agent skills**. The default catalog contains **18 MCPs and 337 skills**, independent of this PC's installations.
+2. Select an agent and filter **Not installed** to find gaps. The view filter is separate from installation targets.
+3. Choose **Choose agents** on one item, or select several items and choose **Install selected**.
+4. Check only the Claude, Codex, and/or Gemini profiles that should receive those tools.
+5. Supply requested inputs, such as Filesystem access folders or a PostgreSQL connection string. Choose **Review plan**.
+6. Review versions, destinations, dependencies, skips, and conflicts, then apply the plan. Progress and installation history show the result.
+7. Restart the affected agent. Hosted MCPs may still need OAuth or account setup inside that agent.
+
+Global means **the current OS user, across projects**, not every account on the PC. The selector does not invoke an LLM or send prompts. Profiles can be preconfigured before their CLI is installed; using the tools still requires that agent.
+
+Automatic recipes cover 330 public skills and all 18 MCP registrations. Seven skills from account-synced sources remain marked for manual setup. The catalog is a starting list, not an instruction to install everything. Downloads need internet; some services need accounts or subscriptions.
+
+## Existing installations and updates
+
+Detection reads global agent configurations, skill discovery folders, enabled Claude MCP plugins, and `~/.agents/skills` shared by Codex and Gemini. Existing tools remain visible and are skipped when already available.
+
+| Agent | MCP configuration | New private skill destination |
+| --- | --- | --- |
+| Claude Code | `~/.claude.json` | `~/.claude/skills/<name>` |
+| Codex | `~/.codex/config.toml` | `~/.codex/skills/<name>` |
+| Gemini CLI | `~/.gemini/settings.json` | `~/.gemini/skills/<name>` |
+
+An explicit `CODEX_HOME` is respected for the current native user. Test profiles do not inherit it.
+
+**Managed** means the app recorded ownership. Only owned installations can be updated or uninstalled here. Existing external tools are inspected for update information and preserved. Local edits and concurrent configuration changes block replacement. Uninstall affects only selected owned registrations or skills; caches and private backups remain.
+
+**Check for updates** contacts recorded publishers. With automatic updates enabled, eligible owned installations update on the configured schedule (24 hours by default). Pause automatic updates to inspect versions first. HTTP service deployments remain provider managed; updates do not authenticate accounts.
+
+Shared skills are never silently moved. **Review migration** explicitly converts a shared skill into selected private copies. The plan identifies all affected agents and those losing shared visibility. Applying it backs up and removes the shared folder after creating selected copies. Review this if Codex and Gemini currently share a skill.
+
+**Suggested additions** shows curated tools absent from the inventory, with publisher links. Default catalog tools support direct installation; suggestions outside the catalog link to setup instructions. Detection and suggestions never automatically reinstall removed tools.
+
+## Optional Docker sandbox
+
+Use the native application for the PC's actual global profiles. Docker is a separate developer environment with its own profiles and state; it does not manage host installations.
+
+1. In **Runtimes & Docker**, choose **Check Docker**. If missing, use the official install link and start Docker Desktop or Docker Engine. Native features work without it.
+2. Choose **Generate configuration**, then **Start sandbox**. The first build downloads the public versioned source and base image.
+3. Open **http://127.0.0.1:8877/**. Installs there affect only the container's `/data/agent-home`.
+4. Use **View logs** for diagnostics and **Stop sandbox** when finished. Stopping retains the named volume.
+
+Developers with a checkout can instead run:
+
+```sh
+docker compose up --build -d --wait
+# Open http://127.0.0.1:8877/
+docker compose logs --tail 80
+docker compose down
 ```
 
-1. Open the cloned **MCP and Agent Skills** folder.
-2. Double-click **Open Dashboard.cmd**. It starts the hidden Python helper if needed and opens your browser.
-3. Leave the helper running for automatic checks. You can close the browser.
+Generated configuration builds the public `v2.0.0` tag, uses a non-root user and a named volume, and publishes only on loopback. It mounts neither the host home nor the Docker socket. Explicitly removing the volume deletes sandbox data. See [Docker's Compose guide](https://docs.docker.com/compose/gettingstarted/).
 
-From PowerShell, the equivalent command is:
+## Themes, responsive layout, and PWA
 
-```powershell
-Set-Location (Join-Path $env:USERPROFILE 'Desktop\MCP and Agent Skills')
-powershell -NoProfile -ExecutionPolicy Bypass -File '.\Start Dashboard.ps1'
+Choose **System**, **Light**, or **Dark** in Preferences. Sidebar categories separate inventory, management, and settings; icons inherit their label color. Layouts adapt from 320px phones to large desktops.
+
+The design adapts the [Linear reference in Awesome Design MD](https://github.com/voltagent/awesome-design-md/tree/main/design-md/linear.app), using local assets and system fonts. See [DESIGN.md](DESIGN.md).
+
+Choose **Install app** when offered, or use your browser's install menu. A manifest, icons, and offline shell are included. After visiting successfully, the PWA displays a dated sanitized inventory and catalog while disconnected. Installation/update controls require the helper. Tokens, connection strings, and plans are excluded from browser caches.
+
+A PWA does not replace the native helper. A physical phone's localhost refers to that phone, so it cannot reach this PC using that address. Responsive layouts work in local browser device emulation. Remote host management is outside this local architecture.
+
+## State, backups, and recovery
+
+| OS | Default state folder |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\AgentInventoryManager` |
+| macOS | `~/Library/Application Support/MCPandSkills` |
+| Linux | `$XDG_DATA_HOME/mcp-and-skills` or `~/.local/share/mcp-and-skills` |
+
+State contains schedules, ownership receipts, publisher caches, versioned runtimes, sanitized snapshots in `exports/`, and private backups in `install-backups/`, `backups/`, and `skill-backups/`. Resources can be read-only; writes go to user state. The original Desktop HTML is refreshed only for the legacy Desktop installation that owns it.
+
+Configurations can contain credentials. Keep backups private. To recover, stop the helper and affected agent, inspect the transaction record, and restore only affected files. Avoid overwriting unrelated newer changes. Uninstalling the dashboard retains agent tools and user state.
+
+## Run from source or build installers
+
+Source execution requires **Python 3.11+** with no third-party Python runtime packages:
+
+```sh
+git clone https://github.com/felixparejapmdit/MCP-and-Skills.git
+cd MCP-and-Skills
+python launcher.py
 ```
 
-Requirements: Windows, Python 3.11 or newer, and existing global Claude Code, Codex, or Gemini CLI installations to inspect. The launcher is configured for Python at `C:\Program Files\Python311`; adjust `$pythonWindowless` in `Start Dashboard.ps1` if your Python installation is elsewhere, or run `python .\server.py --serve` from this folder. The web app needs no Python packages, npm build, database, or API key. Updating npm MCP runtimes uses your installed Node.js/npm; Serena updates use the installed `uv` module and Python 3.13. Publisher checks and downloads require internet access.
+Windows users can also open **Open Dashboard.cmd**. An absolute path to `launcher.py` works from any directory.
 
-This repository contains the dashboard and updater. It reads your existing global MCP configurations and skill metadata. Supported skills are matched to their recorded publisher provenance; unrecognized local skills are preserved. Your account configurations, installed skill files, generated inventory, and update history remain local.
-
-## Use the dashboard
-
-- **Choose your agent:** select All agents, Claude, Codex, or Gemini at the top. Your choice persists in this browser and scopes the installation view. It selects the agent whose tools you manage, rather than sending chat prompts to an LLM.
-- **Installation status:** filter Installed, Missing, or Not installed. Missing covers a compatible capability absent from the selected agent, a previously detected item that was removed, or a configured MCP whose local launcher is missing. Not installed identifies curated additions outside your current inventory.
-- **Refresh inventory:** rescan local installations without checking publishers or applying updates. Live browsing also refreshes detection periodically.
-- **Overview / MCP servers / Agent skills:** browse the current global installations. Search by name and filter by Claude, Codex, or Gemini. The MCP connection badges show the saved connection check, not a new account login test.
-- **Updates:** see installed and latest versions for each supported source. A skill collection shares one publisher check and update action; individual skills link to that source.
-- **Check for updates:** contact the registered publishers. When automatic updates are enabled, available supported updates are applied after the check.
-- **Update available sources / Update:** apply all eligible updates, or one source. The dashboard shows progress and the outcome.
-- **Automatic updates:** enabled by default every **24 hours**. Change the interval or pause in Updates. To inspect available versions without applying them, pause automatic updates before checking.
-- **Suggested additions:** reviewed MCPs and agent skills absent from the current inventory. Their source links let you inspect them; suggestions are not installed automatically. The list is curated in `suggestions.json` and filters against your actual installations.
-- **Activity:** review completed checks, updates, and items requiring attention.
-
-Restart an active Claude, Codex, or Gemini session after updates so it loads the new runtime or skill instructions.
-
-Global source updates can affect more than one agent even when the view is filtered. Detection and suggestions never reinstall a removed item automatically.
-
-## Themes, mobile layout, and PWA installation
-
-Use the appearance selector to choose **Light**, **Dark**, or **System**. The preference persists and applies before the first render. Navigation, controls, tables, and skill collections adapt to phone, tablet, laptop, and large desktop widths.
-
-The design adapts the **Linear** reference from [Awesome Design MD](https://github.com/voltagent/awesome-design-md/tree/main/design-md/linear.app). The app uses neutral surfaces, precise typography, and a restrained lavender accent; [DESIGN.md](DESIGN.md) records the implementation direction.
-
-In a supported browser, use **Install app** when it appears, or the browser's install menu. The manifest, app icons, standalone display, and service worker are included. Installation requires a secure context; `http://127.0.0.1:8766` and localhost qualify on this computer.
-
-After the first successful visit, the PWA can open a dated saved inventory while the helper or network is unavailable. Offline browsing retains themes and previously saved agent views. Update commands remain disabled until the helper reconnects. The service worker caches only the generic app shell and static assets; live session tokens, API responses, and update requests are excluded. Reconnecting renews the session token in memory.
-
-The helper remains bound to this computer's loopback address. A physical phone cannot reach this computer through its own `127.0.0.1`; cross-device installation requires a reachable HTTPS deployment with appropriate backend access. Mobile layouts can also be used through the browser's responsive device view.
-
-## How missing-item detection works
-
-The scan compares current global configuration, skill folders, local launcher paths, compatible capabilities in other agents, and the last successful local scan. Removal history persists across helper restarts and clears when an item is restored. Items removed before the first recorded scan can only be identified through the remaining known catalog or other agents' installations.
-
-Agent-specific built-ins retain their compatibility scope. A command and a portable skill file are distinct installation types. On-demand npm packages do not count as uninstalled merely because an npm cache directory is empty. Unreadable configuration and in-progress updates preserve previous evidence and display a scan warning instead of inventing removals.
-
-## How updates work
-
-The helper reads the global configs in `~/.claude.json`, `~/.codex/config.toml`, and `~/.gemini/settings.json`, enabled Claude plugin metadata, and the installed skill folders. Shared portable skills live in **`%USERPROFILE%\.agents\skills`**.
-
-Supported local MCP packages are downloaded into versioned global runtime folders, validated, and connected to the existing client configurations. Arguments, environment variables, and account credentials are preserved. Hosted MCP services are labeled **Provider managed**, since their providers deploy updates.
-
-If an MCP requires a newer Node version, the helper can download a separate Windows x64 Node runtime from the official release archive and verify its published SHA256 checksum. That runtime is used only for the managed MCP; the Node installation used by your other projects stays in place.
-
-Skills track their recorded public publisher or their latest local Claude-synced source. Updates are staged and validated before replacement. Original files and configurations are backed up. Conflicting local edits are preserved and shown for review. App-bundled system skills remain managed by their app. Newly published skills are not silently added to an installed collection.
-
-Credentials are excluded from the dashboard, saved snapshots, and activity messages. The helper accepts update commands only from its local dashboard.
-
-## Automatic startup and stopping
-
-Install the per-user **MCP and Skill Updates.lnk** shortcut using the command below. It starts the helper at Windows sign-in without opening a browser. Checks run while you are signed in and the helper is running; a missed interval is checked after the next start. Keep the project folder in place so the shortcut can find it.
-
-Install or re-create the startup shortcut:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File '.\Enable Startup.ps1'
+```sh
+python launcher.py status
+python launcher.py stop --no-browser
+python launcher.py install-startup --no-browser
+python launcher.py uninstall-startup --no-browser
 ```
 
-Pause updates in the dashboard to keep browsing without automatic installation. To stop the helper completely:
+Use `--state-dir`, `--home`, and `--port` for isolated development. Use separate ports for separate profiles. `--no-scheduler` disables timed checks. Do not run concurrent updaters against the same state or profiles.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File '.\Stop Dashboard.ps1'
+```sh
+python -m unittest -q
+python -m pip install -r requirements-build.txt
+python packaging/build.py
 ```
 
-Run the launcher again to resume. To disable startup, open `shell:startup` using Windows Run and delete **MCP and Skill Updates.lnk**. This leaves your installed MCPs and skills intact.
+The prepared `packaging/release-workflow.yml` tests and builds natively on Windows, macOS Intel/ARM, and Linux x64/ARM. It runs the bundled app against temporary profiles and checks the Docker sandbox before publishing tag assets. It is a template until copied into `.github/workflows/release.yml` by an authorized maintainer. Build dependencies are pinned. [PyInstaller bundles Python and builds for its current OS](https://pyinstaller.org/en/stable/operating-mode.html). No signing certificates are included; optional signing configuration is in `packaging/build.py`.
 
-## Saved HTML, state, and backups
+Maintainers can enable the prepared workflow after `gh auth refresh -h github.com -s workflow` and completing GitHub sign-in:
 
-- `Desktop\MCP and Agent Skills.html` and this folder's `index.html` are self-contained saved inventories, refreshed when the helper starts and after a completed job. Open **Open live dashboard** inside them for update controls and suggestions.
-- `web/` contains the live interface. Generated `index.html` and `web/snapshot.*` files are excluded from Git; start the helper to create your own snapshots.
-- `%LOCALAPPDATA%\AgentInventoryManager\settings.json` stores the schedule.
-- `%LOCALAPPDATA%\AgentInventoryManager\state.json` stores source check results and activity.
-- `%LOCALAPPDATA%\AgentInventoryManager\availability-history.json` stores sanitized installation evidence used to detect removals.
-- `%LOCALAPPDATA%\AgentInventoryManager\backups` contains previous MCP configurations and the original Desktop HTML. `skill-backups` contains dated skill directory backups and transaction records.
-- `%LOCALAPPDATA%\AgentInventoryManager\runtimes` contains versioned local MCP runtimes. Skill source caches and update receipts are kept in the same state folder.
-
-For a manual recovery, stop the helper and close the affected agent first. Restore only the affected skill directory or configuration from its dated backup, then relaunch the agent. Configuration backups contain the original account credentials; keep them private.
-
-## Troubleshooting and development
-
-If the page does not open, run the launcher again. Confirm the helper responds:
-
-```powershell
-Invoke-RestMethod 'http://127.0.0.1:8766/health'
+```sh
+mkdir -p .github/workflows
+cp packaging/release-workflow.yml .github/workflows/release.yml
+git add .github/workflows/release.yml
+git commit -m "ci: enable native packaging and Docker checks"
+git push
 ```
 
-If port 8766 belongs to another program, stop that conflicting program before launching. If a publisher is unavailable, the dashboard reports the failed source and retries on the next check. **Sign-in required** in the MCP table means that server needs account authorization in the relevant agent; updating it does not sign you in.
+On Windows, use `New-Item -ItemType Directory -Force .github/workflows` and `Copy-Item packaging/release-workflow.yml .github/workflows/release.yml`. After the main-branch checks pass, use the workflow's manual trigger to build artifacts; a new version tag publishes them automatically.
 
-If GitHub's public metadata quota is exhausted, the helper can reuse your existing GitHub CLI sign-in. That credential stays in memory and is used only for GitHub API metadata; it is not written to the cache or sent with downloaded skill files.
+## Troubleshooting
 
-Run in the foreground to inspect a startup error:
+Reopen the app and check `http://127.0.0.1:8766/health`. If another program owns that port, use the launcher's `--port` option. Inspect `helper.log` and `last-launch-error.json` in state. Publisher outages leave existing tools intact. Invalid profile JSON/TOML is preserved for repair. MCP sign-in happens in its agent; reinstalling a registration does not authenticate it.
 
-```powershell
-& 'C:\Program Files\Python311\python.exe' .\server.py --serve
-```
-
-Stop the running helper before using another server instance or the one-time command below; concurrent instances should not update the same global folders.
-
-```powershell
-& 'C:\Program Files\Python311\python.exe' .\server.py --once
-```
-
-`--once` checks and applies supported updates when automatic updates are enabled, then exits. `--no-scheduler` starts a server without timed background checks for controlled verification. The local API and source ownership are documented in `IMPLEMENTATION.md`.
-
-Regression checks use isolated temporary homes and do not update your real installations:
-
-```powershell
-& 'C:\Program Files\Python311\python.exe' -m unittest -v
-```
+See [IMPLEMENTATION.md](IMPLEMENTATION.md) for architecture and APIs.
